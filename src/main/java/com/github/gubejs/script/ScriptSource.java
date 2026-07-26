@@ -1,0 +1,78 @@
+package com.github.gubejs.script;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import net.minecraft.server.packs.resources.Resource;
+
+/**
+ * Where the text of a script comes from.
+ *
+ * <p>Two of them: a file in the pack directory, and a resource inside another mod's jar. Scripts
+ * from both are treated identically once read.
+ */
+@FunctionalInterface
+public interface ScriptSource {
+
+    /**
+     * Reads a script.
+     *
+     * @param info which script to read
+     * @return its lines, without line separators
+     * @throws IOException if it cannot be read
+     */
+    List<String> readSource(ScriptFileInfo info) throws IOException;
+
+    /** A script on disk, in one of the pack's script directories. */
+    @FunctionalInterface
+    interface FromPath extends ScriptSource {
+
+        /**
+         * Resolves a script to a file.
+         *
+         * @param info which script to resolve
+         * @return the file to read
+         */
+        Path getPath(ScriptFileInfo info);
+
+        @Override
+        default List<String> readSource(ScriptFileInfo info) throws IOException {
+            // Explicitly UTF-8 rather than Files.readAllLines' default, which is also UTF-8 but
+            // throws on invalid bytes; a script saved as ANSI should log a mangled character, not
+            // fail to load.
+            return new ArrayList<>(Files.readAllLines(getPath(info), StandardCharsets.UTF_8));
+        }
+    }
+
+    /** A script shipped inside a resource or data pack. */
+    @FunctionalInterface
+    interface FromResource extends ScriptSource {
+
+        /**
+         * Resolves a script to a pack resource.
+         *
+         * @param info which script to resolve
+         * @return the resource to read
+         * @throws IOException if the pack cannot supply it
+         */
+        Resource getResource(ScriptFileInfo info) throws IOException;
+
+        @Override
+        default List<String> readSource(ScriptFileInfo info) throws IOException {
+            var lines = new ArrayList<String>();
+
+            try (var reader = getResource(info).openAsReader()) {
+                String line;
+
+                while ((line = reader.readLine()) != null) {
+                    lines.add(line);
+                }
+            }
+
+            return lines;
+        }
+    }
+}

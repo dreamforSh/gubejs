@@ -2,11 +2,17 @@
   "required": true,
   "minVersion": "0.8",
   "package": "com.github.gubejs.mixin",
-  "compatibilityLevel": "JAVA_8",
+  "compatibilityLevel": "JAVA_17",
   "refmap": "gubejs.refmap.json",
   "mixins": [
+    "InventoryMixin",
+    "LootTablesMixin",
+    "PlayerAdvancementsMixin",
+    "RecipeManagerMixin",
+    "TagLoaderMixin"
   ],
   "client": [
+    "client.ClientLanguageMixin"
   ],
   "injectors": {
     "defaultRequire": 1
