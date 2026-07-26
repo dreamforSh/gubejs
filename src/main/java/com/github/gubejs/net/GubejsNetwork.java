@@ -40,6 +40,12 @@ public final class GubejsNetwork {
      */
     public static final String STAGES_CHANNEL = "gubejs:stages";
 
+    /** The channel {@code player.paint} sends its screen descriptions over. */
+    public static final String PAINT_CHANNEL = "gubejs:paint";
+
+    /** The channel {@code player.notify} sends its toasts over. */
+    public static final String NOTIFY_CHANNEL = "gubejs:notify";
+
     /** The channel itself, registered as the mod loads. */
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
         Gubejs.id("data"), () -> PROTOCOL,
@@ -104,6 +110,21 @@ public final class GubejsNetwork {
         }
     }
 
+    /** Applies a screen description on the client, for the same reason {@link #receiveStages} is
+     * a method of its own. */
+    private static void receivePaint(CompoundTag data) {
+        if (com.github.gubejs.bindings.PlatformWrapper.isClient()) {
+            com.github.gubejs.client.painter.Painter.INSTANCE.receive(data);
+        }
+    }
+
+    /** Raises a toast on the client. */
+    private static void receiveNotification(CompoundTag data) {
+        if (com.github.gubejs.bindings.PlatformWrapper.isClient()) {
+            com.github.gubejs.client.painter.ScriptToast.show(data);
+        }
+    }
+
     private static CompoundTag tagOf(@Nullable Object data) {
         var tag = NbtHelper.compound(data);
         return tag == null ? new CompoundTag() : tag;
@@ -138,9 +159,21 @@ public final class GubejsNetwork {
             // enqueueWork, not the netty thread: a listener will touch the world, and the world
             // belongs to the server or render thread.
             context.enqueueWork(() -> {
-                if (packet.channel.equals(STAGES_CHANNEL) && context.getSender() == null) {
-                    receiveStages(packet.data);
-                    return;
+                if (context.getSender() == null) {
+                    if (packet.channel.equals(STAGES_CHANNEL)) {
+                        receiveStages(packet.data);
+                        return;
+                    }
+
+                    if (packet.channel.equals(PAINT_CHANNEL)) {
+                        receivePaint(packet.data);
+                        return;
+                    }
+
+                    if (packet.channel.equals(NOTIFY_CHANNEL)) {
+                        receiveNotification(packet.data);
+                        return;
+                    }
                 }
 
                 if (!NetworkEvents.DATA_RECEIVED.hasListeners()) {

@@ -29,6 +29,26 @@ public final class RegistryInfo<T> {
     /** The block registry. */
     public static final RegistryInfo<Block> BLOCK = register(Registry.BLOCK_REGISTRY, "block");
 
+    /**
+     * The fluid registry.
+     *
+     * <p>A script creates one fluid; five registry entries come out of it — the still and flowing
+     * fluids, the fluid type, the block it forms and the bucket that carries it. Only the still
+     * one is a builder a script holds; see {@link com.github.gubejs.fluid.FluidBuilder}.
+     */
+    public static final RegistryInfo<net.minecraft.world.level.material.Fluid> FLUID =
+        register(Registry.FLUID_REGISTRY, "fluid");
+
+    /**
+     * Forge's fluid type registry, which holds the physical properties of a fluid.
+     *
+     * <p>Separate from the fluid itself since 1.18.2: the still and flowing fluids are two
+     * objects that have to agree on density, temperature and how they are drawn, and the type is
+     * where that agreement lives.
+     */
+    public static final RegistryInfo<net.minecraftforge.fluids.FluidType> FLUID_TYPE =
+        register(net.minecraftforge.registries.ForgeRegistries.Keys.FLUID_TYPES, "fluid_type");
+
     private static <T> RegistryInfo<T> register(ResourceKey<? extends Registry<T>> key, String name) {
         var info = new RegistryInfo<T>(key, name);
         ALL.put(key, info);

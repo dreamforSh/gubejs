@@ -218,6 +218,57 @@ public interface PlayerKJS extends EntityKJS {
         }
     }
 
+    // --- the screen ----------------------------------------------------------------------------
+
+    /**
+     * Draws things over this player's game.
+     *
+     * <pre>{@code
+     * player.paint({
+     *     hp: { type: 'text', text: 'HP', x: 10, y: 10, color: '#FF5555', shadow: true },
+     *     bar: { type: 'rectangle', x: 10, y: 22, w: 100, h: 6, color: '#8800FF00' }
+     * })
+     * }</pre>
+     *
+     * <p>Keyed by name, so a bar redrawn every tick replaces only itself. An entry set to an empty
+     * object is removed; {@link #clearOverlay()} takes everything away.
+     *
+     * @param objects the descriptions, by name
+     */
+    default void paint(@Nullable Object objects) {
+        var data = new CompoundTag();
+        data.put("objects", com.github.gubejs.util.NbtHelper.compound(objects));
+        sendData(com.github.gubejs.net.GubejsNetwork.PAINT_CHANNEL, data);
+    }
+
+    /**
+     * Shows a pop-up in the corner of this player's screen.
+     *
+     * <pre>{@code
+     * player.notify({
+     *     title: 'Quest complete',
+     *     subtitle: 'Mine a diamond',
+     *     icon: 'minecraft:diamond'
+     * })
+     * }</pre>
+     *
+     * @param notification the description — {@code title}, {@code subtitle}, {@code icon},
+     *     {@code color} and {@code duration} in milliseconds
+     */
+    default void notify(@Nullable Object notification) {
+        sendData(com.github.gubejs.net.GubejsNetwork.NOTIFY_CHANNEL,
+            com.github.gubejs.util.NbtHelper.compound(notification));
+    }
+
+    /**
+     * Removes everything {@link #paint} drew.
+     */
+    default void clearOverlay() {
+        var data = new CompoundTag();
+        data.putBoolean("clear", true);
+        sendData(com.github.gubejs.net.GubejsNetwork.PAINT_CHANNEL, data);
+    }
+
     // --- screens -------------------------------------------------------------------------------
 
     /**

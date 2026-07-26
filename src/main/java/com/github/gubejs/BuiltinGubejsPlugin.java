@@ -60,6 +60,7 @@ public final class BuiltinGubejsPlugin extends GubejsPlugin {
     public void init() {
         ItemBuilder.registerTypes();
         BlockBuilder.registerTypes();
+        com.github.gubejs.fluid.FluidBuilder.registerTypes();
         com.github.gubejs.recipe.RecipeSchema.registerBuiltIn();
     }
 
@@ -74,6 +75,7 @@ public final class BuiltinGubejsPlugin extends GubejsPlugin {
         LevelEvents.GROUP.register();
         ClientEvents.GROUP.register();
         NetworkEvents.GROUP.register();
+        com.github.gubejs.bindings.event.WorldgenEvents.GROUP.register();
     }
 
     @Override

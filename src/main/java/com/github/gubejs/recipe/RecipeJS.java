@@ -152,6 +152,160 @@ public final class RecipeJS {
         event.removeById(id);
     }
 
+    // --- modifiers ---------------------------------------------------------------------------
+
+    /**
+     * Leaves an ingredient in the grid instead of consuming it.
+     *
+     * <pre>{@code
+     * event.shaped('minecraft:bread', ['WWW'], { W: 'minecraft:wheat' })
+     *     .keepIngredient('minecraft:wheat')
+     * }</pre>
+     *
+     * @param ingredient which ingredient, as an id, a {@code #tag} or a list
+     * @return this recipe
+     */
+    public RecipeJS keepIngredient(@Nullable Object ingredient) {
+        return action("keep", ingredient, null);
+    }
+
+    /**
+     * Damages an ingredient instead of consuming it, the way a crafting tool works.
+     *
+     * @param ingredient which ingredient
+     * @return this recipe
+     */
+    public RecipeJS damageIngredient(@Nullable Object ingredient) {
+        return damageIngredient(ingredient, 1);
+    }
+
+    /**
+     * Damages an ingredient by an amount instead of consuming it.
+     *
+     * <p>An ingredient with no durability is kept instead of being damaged, since damaging it
+     * would mean consuming it — the opposite of what the recipe asked for.
+     *
+     * @param ingredient which ingredient
+     * @param amount how much durability it loses
+     * @return this recipe
+     */
+    public RecipeJS damageIngredient(@Nullable Object ingredient, int amount) {
+        var action = actionFor("damage", ingredient);
+        action.addProperty("amount", amount);
+        return addAction(action);
+    }
+
+    /**
+     * Leaves a different item in the grid in an ingredient's place.
+     *
+     * @param ingredient which ingredient
+     * @param with what to leave behind
+     * @return this recipe
+     */
+    public RecipeJS replaceIngredient(@Nullable Object ingredient, @Nullable Object with) {
+        return action("replace", ingredient, with);
+    }
+
+    /**
+     * Runs a function over the result before it is handed to the player.
+     *
+     * <pre>{@code
+     * event.shaped('minecraft:diamond_sword', ...).modifyResult((result, grid) => {
+     *     return result.withNbt({ display: { Name: '{"text":"Sharp"}' } })
+     * })
+     * }</pre>
+     *
+     * <p>Server-side only, which is where a crafting result is decided anyway. A client reading the
+     * same recipe has no such function and shows what the recipe underneath produces.
+     *
+     * @param function takes the result and the crafting grid, returns the new result
+     * @return this recipe
+     */
+    public RecipeJS modifyResult(org.graalvm.polyglot.Value function) {
+        modifiers().addProperty("modify_result", RecipeCallbacks.register(function));
+        event.countModified();
+        return this;
+    }
+
+    /**
+     * Stops a shaped recipe matching its pattern flipped left-to-right.
+     *
+     * <p>Vanilla tries both ways round, so a recipe where left and right mean different things
+     * cannot be written without this.
+     *
+     * @return this recipe
+     */
+    public RecipeJS noMirror() {
+        modifiers().addProperty("no_mirror", true);
+        event.countModified();
+        return this;
+    }
+
+    /**
+     * Keeps the blank rows and columns around a shaped recipe's pattern.
+     *
+     * <p>Vanilla trims them while reading, so {@code ['   ', ' A ', '   ']} becomes a one-cell
+     * recipe that matches anywhere in the grid. With this the position is part of the recipe.
+     *
+     * @return this recipe
+     */
+    public RecipeJS noShrink() {
+        modifiers().addProperty("no_shrink", true);
+        event.countModified();
+        return this;
+    }
+
+    private RecipeJS action(String type, @Nullable Object ingredient, @Nullable Object with) {
+        var action = actionFor(type, ingredient);
+
+        if (with != null) {
+            action.add("with", RecipeJson.result(with));
+        }
+
+        return addAction(action);
+    }
+
+    private JsonObject actionFor(String type, @Nullable Object ingredient) {
+        var action = new JsonObject();
+        action.addProperty("type", type);
+        action.add("ingredient", RecipeJson.ingredient(ingredient));
+        return action;
+    }
+
+    private RecipeJS addAction(JsonObject action) {
+        var wrapper = modifiers();
+        var actions = wrapper.has("actions") && wrapper.get("actions").isJsonArray()
+            ? wrapper.getAsJsonArray("actions") : new JsonArray();
+        actions.add(action);
+        wrapper.add("actions", actions);
+        event.countModified();
+        return this;
+    }
+
+    /**
+     * Turns this recipe into a wrapper around itself, if it is not one already.
+     *
+     * <p>Edited in place rather than replaced, because the event's map holds this exact object and
+     * swapping it for a new one would leave the map pointing at the unwrapped recipe.
+     *
+     * @return the wrapper's JSON, which is this recipe's JSON
+     */
+    private JsonObject modifiers() {
+        if ("gubejs:modified".equals(getType())) {
+            return json;
+        }
+
+        var inner = json.deepCopy();
+
+        for (var key : new java.util.ArrayList<>(json.keySet())) {
+            json.remove(key);
+        }
+
+        json.addProperty("type", "gubejs:modified");
+        json.add("recipe", inner);
+        return json;
+    }
+
     /**
      * Reads a key out of the recipe's JSON, as plain JavaScript values.
      *

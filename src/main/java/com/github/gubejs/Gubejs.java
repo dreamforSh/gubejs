@@ -104,8 +104,11 @@ public final class Gubejs {
         // have to hand over finished objects. Doing it here also means a failure names the script
         // that caused it while the startup console is still the current one.
         buildRegistryEntries();
+        expandBuilders();
+        buildWorldgen();
 
         var modBus = FMLJavaModLoadingContext.get().getModEventBus();
+        com.github.gubejs.recipe.GubejsRecipes.init(modBus);
         modBus.addListener(this::registerObjects);
         modBus.addListener(this::addPackFinders);
         modBus.addListener(this::loadComplete);
@@ -160,15 +163,49 @@ public final class Gubejs {
                 ConsoleJS.STARTUP.handleError(ex, "Could not register " + builder.id);
             }
         }
+    }
 
-        // A block registered without an item is a block nothing can obtain, so the matching item
-        // is created here rather than making every script remember to ask for one.
-        if (info == RegistryInfo.BLOCK) {
-            registerBlockItems();
+    /**
+     * Runs the world generation listeners, turning what they ask for into datapack files.
+     *
+     * <p>Here rather than at any later point because the files have to exist before the pack
+     * finder runs: world generation in this version is read from a datapack as the world's
+     * generator is built, which is the first thing a server does and long before a server script
+     * has run.
+     */
+    private void buildWorldgen() {
+        com.github.gubejs.worldgen.WorldgenFiles.clear();
+
+        com.github.gubejs.bindings.event.WorldgenEvents.ADD.post(ScriptType.STARTUP,
+            new com.github.gubejs.worldgen.AddWorldgenEventJS());
+        com.github.gubejs.bindings.event.WorldgenEvents.REMOVE.post(ScriptType.STARTUP,
+            new com.github.gubejs.worldgen.RemoveWorldgenEventJS());
+
+        var count = com.github.gubejs.worldgen.WorldgenFiles.getAll().size();
+
+        if (count > 0) {
+            LOGGER.info("Generated {} world generation file(s); see local/gubejs/generated/data",
+                count);
         }
     }
 
-    private void registerBlockItems() {
+    /**
+     * Creates the registry entries that come with something a script asked for.
+     *
+     * <p>A block needs an item or nothing can obtain it; a fluid needs four more entries before it
+     * is a fluid at all. Both are queued here, before the first {@code RegisterEvent} rather than
+     * during one — Forge fills registries in its own order, and an entry added while a later
+     * registry is being filled would simply be missed.
+     */
+    private void expandBuilders() {
+        // Fluids first, since each adds a block, and the block item pass below has to see them.
+        // Over a copy: expanding a fluid adds its flowing counterpart to the same list.
+        for (var builder : java.util.List.copyOf(RegistryInfo.FLUID.getBuilders())) {
+            if (builder instanceof com.github.gubejs.fluid.FluidBuilder fluidBuilder) {
+                fluidBuilder.expand();
+            }
+        }
+
         for (var builder : RegistryInfo.BLOCK.getBuilders()) {
             if (builder instanceof com.github.gubejs.block.BlockBuilder blockBuilder
                 && blockBuilder.hasItem()) {

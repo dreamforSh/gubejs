@@ -96,7 +96,11 @@ public final class GubejsTypeMappings implements TypeMappingProvider {
      */
     private static <T> void fromString(MappingRegistry<T> registry, Class<T> objectType,
                                        Predicate<String> accepts, Function<String, ?> converter) {
-        registry.register(String.class, objectType, accepts,
+        // The null guard is not paranoia: the engine asks every registered conversion whether it
+        // accepts a value while it is choosing between overloaded methods, and a null argument is
+        // offered to all of them. Without it, `type.getViscosity(null)` fails inside whichever
+        // predicate reaches for the string first rather than picking an overload.
+        registry.register(String.class, objectType, text -> text != null && accepts.test(text),
             text -> objectType.cast(converter.apply(text)));
     }
 

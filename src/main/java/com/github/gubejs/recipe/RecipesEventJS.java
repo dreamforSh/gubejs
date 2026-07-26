@@ -61,6 +61,11 @@ public final class RecipesEventJS extends EventJS {
 
     public RecipesEventJS(Map<ResourceLocation, JsonElement> recipes) {
         this.recipes = recipes;
+
+        // The modifyResult callbacks belong to the run of scripts that is about to happen. The
+        // previous run's functions belong to a context that has been closed, and a recipe still
+        // carrying one of their numbers would call into it.
+        RecipeCallbacks.clear();
     }
 
     // --- recipe types ------------------------------------------------------------------------

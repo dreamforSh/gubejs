@@ -138,6 +138,37 @@ public final class GubejsClient {
         }
     }
 
+    /**
+     * Draws whatever a script asked to have on screen.
+     *
+     * <p>After the game's own interface rather than in place of any part of it, so nothing a
+     * script draws can hide the hotbar or the health bar by accident.
+     *
+     * @param event Forge's post-GUI render event
+     */
+    @SubscribeEvent
+    public static void renderOverlay(net.minecraftforge.client.event.RenderGuiEvent.Post event) {
+        var painter = com.github.gubejs.client.painter.Painter.INSTANCE;
+
+        if (!painter.isEmpty()) {
+            painter.draw(event.getPoseStack(), event.getWindow().getGuiScaledWidth(),
+                event.getWindow().getGuiScaledHeight());
+        }
+    }
+
+    /**
+     * Clears the screen when leaving a world.
+     *
+     * <p>Otherwise what one server drew stays up on the main menu and into the next world, since
+     * nothing else ever removes it.
+     *
+     * @param event Forge's logging-out event
+     */
+    @SubscribeEvent
+    public static void clearOverlay(ClientPlayerNetworkEvent.LoggingOut event) {
+        com.github.gubejs.client.painter.Painter.INSTANCE.clear();
+    }
+
     @SubscribeEvent
     public static void debugText(CustomizeGuiOverlayEvent.DebugText event) {
         if (ClientEvents.DEBUG_LEFT.hasListeners()) {

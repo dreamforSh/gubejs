@@ -90,6 +90,10 @@ public final class GeneratedPack {
             }
         }
 
+        // World generation is not a builder in a registry -- it is a datapack, written whole by
+        // the WorldgenEvents listeners -- but it lands in the same generated pack.
+        files.putAll(com.github.gubejs.worldgen.WorldgenFiles.getAll());
+
         if (!translations.isEmpty()) {
             var byNamespace = new LinkedHashMap<String, Map<String, String>>();
 
