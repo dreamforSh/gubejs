@@ -199,10 +199,38 @@ public final class GubejsEventHandler {
         }
     }
 
+    /**
+     * Answers a furnace's "how long does this burn" question for items a script changed.
+     *
+     * <p>Through the event rather than through the item, because Forge's {@code getBurnTime} is a
+     * default method on an interface the item never overrode — there is no implementation to
+     * inject into.
+     *
+     * @param event Forge's fuel burn time event
+     */
+    @SubscribeEvent
+    public void furnaceFuelBurnTime(
+        net.minecraftforge.event.furnace.FurnaceFuelBurnTimeEvent event) {
+        if (event.getItemStack().getItem()
+            instanceof com.github.gubejs.core.ItemKJS modifiable) {
+            var modifications = modifiable.gjs$getModifications();
+
+            if (modifications != null && modifications.burnTime != null) {
+                event.setBurnTime(modifications.burnTime);
+            }
+        }
+    }
+
     // --- players -----------------------------------------------------------------------------
 
     @SubscribeEvent
     public void playerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+        // Before the listeners: one of them may add a stage, and sending afterwards would send the
+        // list twice while sending only here would send it without the new one.
+        if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+            com.github.gubejs.core.StageManager.sync(serverPlayer);
+        }
+
         if (PlayerEvents.LOGGED_IN.hasListeners()) {
             PlayerEvents.LOGGED_IN.post(new PlayerEventJS(event.getEntity()));
         }

@@ -61,6 +61,15 @@ public interface ItemEvents {
      * <p>{@code event.cancel()} stops the item doing whatever it normally would. A click aimed at
      * a block goes to {@link #FIRST_RIGHT_CLICKED} instead, because the block gets first refusal.
      */
+    /**
+     * Changes the properties of items that already exist — stack size, rarity, burn time.
+     *
+     * <p>Fires once while the game loads, after every mod has registered its items. A startup
+     * event, since the change is permanent and a reload cannot undo it.
+     */
+    EventHandler MODIFICATION = GROUP.startup("modification",
+        () -> com.github.gubejs.item.ItemModificationEventJS.class);
+
     EventHandler RIGHT_CLICKED = GROUP.common("rightClicked", () -> ItemClickedEventJS.class)
         .extra(SUPPORTS_ITEM).hasResult();
 

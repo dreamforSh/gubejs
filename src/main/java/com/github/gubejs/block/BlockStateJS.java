@@ -142,6 +142,24 @@ public final class BlockStateJS {
     }
 
     /**
+     * Sets several properties at once, leaving unknown ones alone.
+     *
+     * @param state the state to change
+     * @param properties the property names and their values
+     * @return the changed state
+     */
+    public static BlockState withProperties(BlockState state, java.util.Map<?, ?> properties) {
+        var result = state;
+
+        for (var entry : properties.entrySet()) {
+            result = withProperty(result, String.valueOf(entry.getKey()),
+                String.valueOf(com.github.gubejs.util.ValueUtils.unwrap(entry.getValue())));
+        }
+
+        return result;
+    }
+
+    /**
      * Applies a parsed property value.
      *
      * <p>Generic because {@link BlockState#setValue} ties the property to its value type, and the

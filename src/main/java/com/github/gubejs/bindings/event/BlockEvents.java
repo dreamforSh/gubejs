@@ -53,6 +53,14 @@ public interface BlockEvents {
     }
 
     /** A player right-clicking a block. {@code event.cancel()} stops the block responding. */
+    /**
+     * Changes the properties of blocks that already exist — hardness, blast resistance.
+     *
+     * <p>Fires once while the game loads, after every mod has registered its blocks.
+     */
+    EventHandler MODIFICATION = GROUP.startup("modification",
+        () -> com.github.gubejs.block.BlockModificationEventJS.class);
+
     EventHandler RIGHT_CLICKED = GROUP.common("rightClicked", () -> BlockRightClickedEventJS.class)
         .extra(SUPPORTS_BLOCK).hasResult();
 

@@ -51,6 +51,12 @@ public final class GubejsTypeMappings implements TypeMappingProvider {
             fromString(registry, objectType, IngredientJS::looksLikeIngredient, IngredientJS::parse);
             fromGuest(registry, objectType,
                 v -> v.hasArrayElements() || v.hasMembers(), IngredientJS::of);
+        } else if (objectType == net.minecraftforge.fluids.FluidStack.class) {
+            fromString(registry, objectType,
+                com.github.gubejs.fluid.FluidStackJS::looksLikeFluid,
+                com.github.gubejs.fluid.FluidStackJS::parse);
+            fromGuest(registry, objectType, Value::hasMembers,
+                com.github.gubejs.fluid.FluidStackJS::of);
         } else if (objectType == BlockState.class) {
             fromString(registry, objectType, BlockStateJS::looksLikeBlockState, BlockStateJS::parse);
         } else if (objectType == BlockPos.class) {

@@ -137,6 +137,47 @@ public final class ScriptFileInfo {
     }
 
     /**
+     * Reports whether this file is an ES module rather than a plain script.
+     *
+     * <p>Declared rather than detected. A KubeJS pack shares code through globals, and every file
+     * in it runs in one shared scope; a module gets a scope of its own and would break that. So
+     * nothing becomes a module by accident — a {@code .mjs} extension or an explicit
+     * {@code // module} directive is what asks for one:
+     *
+     * <pre>{@code
+     * // module
+     * export function chance(n) { return Math.random() < n }
+     * }</pre>
+     *
+     * @return {@code true} if it should be evaluated as a module
+     */
+    public boolean isModule() {
+        return file.endsWith(".mjs") || !getProperties("module").isEmpty();
+    }
+
+    /**
+     * Reports whether the file looks like it meant to be a module but did not say so.
+     *
+     * <p>Used only to turn "Expected an operand but found import" — which says nothing useful —
+     * into a message naming the directive that fixes it.
+     *
+     * @return {@code true} if a top-level import or export appears in the source
+     */
+    public boolean looksLikeModule() {
+        for (var line : lines) {
+            var trimmed = line.stripLeading();
+
+            if (trimmed.startsWith("export ") || trimmed.startsWith("export{")
+                || trimmed.startsWith("export default")
+                || trimmed.startsWith("import ") && trimmed.contains(" from ")) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Explains why this file should not run.
      *
      * @param currentPackMode the pack mode in effect

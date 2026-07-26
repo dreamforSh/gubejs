@@ -24,6 +24,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.ResourceManager;
+import org.graalvm.polyglot.Source;
 import org.graalvm.polyglot.Value;
 import org.jetbrains.annotations.Nullable;
 
@@ -66,6 +67,8 @@ public final class ScriptManager {
     @Nullable
     private ScriptContext context;
 
+    private RequireFunction requireFunction = new RequireFunction(this);
+
     private boolean canListenEvents;
 
     /** Whether this is the first load of this launch, for one-time messages. */
@@ -86,6 +89,18 @@ public final class ScriptManager {
      */
     public ClassFilter getClassFilter() {
         return classFilter;
+    }
+
+    /**
+     * Returns this type's {@code require}, which loads modules relative to its own directory.
+     *
+     * <p>Rebuilt on every reload, along with the context: the modules it cached belong to a
+     * context that has been closed, and handing one of those out afterwards would fail.
+     *
+     * @return the function
+     */
+    public RequireFunction getRequireFunction() {
+        return requireFunction;
     }
 
     /**
@@ -243,6 +258,9 @@ public final class ScriptManager {
 
         try {
             context = createContext();
+            // Before the bindings, which is where it is handed to scripts: the modules the
+            // previous one cached belong to the context that was just thrown away.
+            requireFunction = new RequireFunction(this);
             installBindings();
 
             // Only while scripts are being evaluated: a listener registered later would survive
@@ -281,16 +299,19 @@ public final class ScriptManager {
         var previousSource = ConsoleJS.pushSource(file.info.location);
 
         try {
-            // Through the shared source cache: the same file reloaded into a new context reuses
-            // the syntax tree the engine already built for it.
-            var source = GraalScripting.sources()
-                .literal(GraalScripting.JS, file.info.location, file.getSourceText());
-            context.eval(source);
+            context.eval(sourceFor(file));
 
             scriptType.console.debug("Loaded " + file.info.location + " in "
                 + (System.currentTimeMillis() - startedAt) / 1000D + "s");
             return true;
         } catch (Throwable ex) {
+            if (file.info.looksLikeModule() && !file.info.isModule()) {
+                scriptType.console.error(file.info.location + " uses import or export, which "
+                    + "needs a '// module' line at the top of the file (or a .mjs extension). "
+                    + "Without it the file is loaded as a plain script, which shares one scope "
+                    + "with every other script -- the way a KubeJS pack expects.");
+            }
+
             scriptType.console.handleError(ex, "Error loading " + file.info.location);
             return false;
         } finally {
@@ -299,6 +320,47 @@ public final class ScriptManager {
             ScriptType.push(previousType);
         }
     }
+
+    /**
+     * Builds the source to hand the engine, as a script or as a module.
+     *
+     * <p>A module has to come from a file: {@code import './lib.js'} is resolved relative to the
+     * importing source's own path, and a literal has none. A module inside another mod's jar is
+     * therefore not something this can load, which is why {@link #isModuleFile} checks for a real
+     * path as well as for the directive.
+     */
+    private Source sourceFor(ScriptFile file) throws java.io.IOException {
+        if (isModuleFile(file)) {
+            var path = ((ScriptSource.FromPath) file.source).getPath(file.info);
+            return Source.newBuilder(GraalScripting.JS, path.toFile())
+                .name(file.info.location)
+                .mimeType(MODULE_MIME_TYPE)
+                .build();
+        }
+
+        // Through the shared source cache: the same file reloaded into a new context reuses the
+        // syntax tree the engine already built for it.
+        return GraalScripting.sources()
+            .literal(GraalScripting.JS, file.info.location, file.getSourceText());
+    }
+
+    private boolean isModuleFile(ScriptFile file) {
+        if (!file.info.isModule()) {
+            return false;
+        }
+
+        if (file.source instanceof ScriptSource.FromPath) {
+            return true;
+        }
+
+        scriptType.console.error(file.info.location + " is marked as a module, but it ships "
+            + "inside a jar rather than in the pack directory. Modules are resolved against the "
+            + "filesystem; load it as a plain script instead.");
+        return false;
+    }
+
+    /** What tells the engine to parse a source as an ES module rather than as a script. */
+    private static final String MODULE_MIME_TYPE = "application/javascript+module";
 
     private ScriptContext createContext() {
         var builder = GraalScripting.newContextBuilder()
@@ -310,7 +372,8 @@ public final class ScriptManager {
             // it nowhere else. It also drops the language level to ES5, hence the explicit version
             // below -- without it, arrow functions and template literals stop parsing.
             .option("js.nashorn-compat", "true")
-            .ecmaScriptVersion(CommonProperties.get().ecmaScriptVersion);
+            .ecmaScriptVersion(CommonProperties.get().ecmaScriptVersion)
+            .customize(this::allowModules);
 
         var timeout = CommonProperties.get().scriptTimeout;
 
@@ -321,20 +384,78 @@ public final class ScriptManager {
         return builder.build();
     }
 
+    /**
+     * Turns on ES modules, fenced to the pack directory.
+     *
+     * <p>The capability KubeJS cannot offer: Rhino has no module system at all, so a KubeJS pack
+     * shares code by writing onto {@code global} and hoping the load order works out. Here a
+     * script can {@code import} a file by name and get exactly what it exported.
+     *
+     * <p>Module resolution needs file access, and the engine's file access is all or nothing —
+     * hence {@link PackFileSystem}, which resolves inside the pack directory and refuses
+     * everything else. That is also what keeps {@code import '/etc/passwd'} from working.
+     */
+    private void allowModules(org.graalvm.polyglot.Context.Builder builder) {
+        // Rooted at the pack directory rather than at this type's script directory, so one
+        // lib/ folder can be imported by startup, server and client scripts alike -- which is
+        // exactly the code a pack wants in one place.
+        builder.allowIO(org.graalvm.polyglot.io.IOAccess.newBuilder()
+                .fileSystem(new PackFileSystem(com.github.gubejs.GubejsPaths.DIRECTORY))
+                .build())
+            // Without this, evaluating a module returns nothing and `require` could not hand a
+            // script the module's exports.
+            .option("js.esm-eval-returns-exports", "true");
+    }
+
     private void installBindings() {
         var event = new BindingsEvent(this);
         GubejsPlugins.forEachPlugin(plugin -> plugin.registerBindings(event));
 
         var bindings = context.bindings();
+        var types = new LinkedHashMap<String, String>();
 
         for (var entry : event.getBindings().entrySet()) {
-            bindings.putMember(entry.getKey(), entry.getValue());
+            // A Class put into the bindings arrives as an ordinary host object -- one whose
+            // members are java.lang.Class's own, so `Item.of(...)` looks for an `of` on
+            // java.lang.Class and does not find one. Static members are reachable only through a
+            // host type reference, and Java.type is the only thing that produces one; there is no
+            // API for it on the Java side. So the class bindings are collected here and installed
+            // by the prelude below.
+            if (entry.getValue() instanceof Class<?> type) {
+                classFilter.allow(type);
+                types.put(entry.getKey(), type.getName());
+            } else {
+                bindings.putMember(entry.getKey(), entry.getValue());
+            }
         }
 
         // A shim rather than a Java binding: `Java` is the engine's own object, and adding to it
         // from here is the only way to keep both spellings working.
         context.eval(GraalScripting.sources().literal(GraalScripting.JS, "gubejs:prelude", PRELUDE));
+        installTypes(types);
     }
+
+    /**
+     * Turns the class bindings into host type references, so their static members are reachable.
+     *
+     * @param types binding name to fully qualified class name
+     */
+    private void installTypes(Map<String, String> types) {
+        var installer = context.eval(GraalScripting.sources().literal(GraalScripting.JS,
+            "gubejs:install-types", TYPE_INSTALLER));
+
+        types.forEach((name, className) -> {
+            try {
+                installer.executeVoid(name, className);
+            } catch (Throwable ex) {
+                scriptType.console.error("Could not bind '" + name + "' to " + className, ex);
+            }
+        });
+    }
+
+    /** Assigns one host type to a global. Built once and called per binding. */
+    private static final String TYPE_INSTALLER =
+        "(function (name, className) { globalThis[name] = Java.type(className) })";
 
     /**
      * The few lines of JavaScript every context starts with.

@@ -1,10 +1,17 @@
 package com.github.gubejs;
 
+import com.github.gubejs.bindings.AABBWrapper;
 import com.github.gubejs.bindings.BlockWrapper;
+import com.github.gubejs.bindings.ColorWrapper;
+import com.github.gubejs.bindings.FluidWrapper;
 import com.github.gubejs.bindings.IngredientWrapper;
 import com.github.gubejs.bindings.ItemWrapper;
+import com.github.gubejs.bindings.KMath;
+import com.github.gubejs.bindings.LegacyCodeHandler;
+import com.github.gubejs.bindings.NBTIOWrapper;
 import com.github.gubejs.bindings.PlatformWrapper;
 import com.github.gubejs.bindings.TextWrapper;
+import com.github.gubejs.bindings.UUIDWrapper;
 import com.github.gubejs.bindings.UtilsWrapper;
 import com.github.gubejs.bindings.event.BlockEvents;
 import com.github.gubejs.bindings.event.ClientEvents;
@@ -31,7 +38,6 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Rarity;
 import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.material.Material;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -54,6 +60,7 @@ public final class BuiltinGubejsPlugin extends GubejsPlugin {
     public void init() {
         ItemBuilder.registerTypes();
         BlockBuilder.registerTypes();
+        com.github.gubejs.recipe.RecipeSchema.registerBuiltIn();
     }
 
     @Override
@@ -75,6 +82,10 @@ public final class BuiltinGubejsPlugin extends GubejsPlugin {
         event.add("global", GLOBAL);
         event.add("Platform", PlatformWrapper.class);
 
+        // Not a KubeJS global: Rhino has no modules, so a KubeJS pack has nothing to require.
+        // Here a plain script can reach one without becoming a module itself.
+        event.add("require", event.getManager().getRequireFunction());
+
         // Behind the check rather than addForTypes: naming the class at all would have a dedicated
         // server try to resolve it, and everything it touches is client-only.
         if (PlatformWrapper.isClient()) {
@@ -84,24 +95,67 @@ public final class BuiltinGubejsPlugin extends GubejsPlugin {
 
         event.add("Item", ItemWrapper.class);
         event.add("Block", BlockWrapper.class);
+        event.add("Fluid", FluidWrapper.class);
         event.add("Ingredient", IngredientWrapper.class);
         event.add("Text", TextWrapper.class);
+        // KubeJS binds the same wrapper under both names, and packs use both.
+        event.add("Component", TextWrapper.class);
         event.add("Utils", UtilsWrapper.class);
+        event.add("KMath", KMath.class);
+        event.add("Color", ColorWrapper.class);
+        event.add("UUID", UUIDWrapper.class);
         event.add("JsonIO", JsonUtils.class);
         event.add("NBT", NbtHelper.class);
+        event.add("NBTIO", NBTIOWrapper.class);
+        event.add("FluidAmounts", com.github.gubejs.fluid.FluidAmounts.class);
 
         // Vanilla types a script refers to often enough that looking them up with Java.loadClass
         // every time would be noise.
         event.add("ResourceLocation", ResourceLocation.class);
         event.add("BlockPos", BlockPos.class);
         event.add("Vec3", Vec3.class);
-        event.add("AABB", AABB.class);
+        event.add("Vec3d", Vec3.class);
+        event.add("Vec3i", net.minecraft.core.Vec3i.class);
+        event.add("Vec3f", com.mojang.math.Vector3f.class);
+        event.add("Vec4f", com.mojang.math.Vector4f.class);
+        event.add("Matrix3f", com.mojang.math.Matrix3f.class);
+        event.add("Matrix4f", com.mojang.math.Matrix4f.class);
+        event.add("Quaternionf", com.mojang.math.Quaternion.class);
+        event.add("AABB", AABBWrapper.class);
         event.add("Direction", Direction.class);
+        // Two names for one enum, because a block state property is spelled 'facing' and the
+        // parameter a script passes it is spelled 'direction'.
+        event.add("Facing", Direction.class);
         event.add("ChatFormatting", ChatFormatting.class);
         event.add("Rarity", Rarity.class);
         event.add("Material", Material.class);
         event.add("SoundType", SoundType.class);
+        event.add("DamageSource", net.minecraft.world.damagesource.DamageSource.class);
+        event.add("BlockProperties",
+            net.minecraft.world.level.block.state.properties.BlockStateProperties.class);
+        event.add("Blocks", net.minecraft.world.level.block.Blocks.class);
+        event.add("Items", net.minecraft.world.item.Items.class);
+        event.add("Stats", net.minecraft.stats.Stats.class);
+        event.add("MobEffects", net.minecraft.world.effect.MobEffects.class);
+        event.add("Enchantments", net.minecraft.world.item.enchantment.Enchantments.class);
+        event.add("SoundEvents", net.minecraft.sounds.SoundEvents.class);
+        event.add("ParticleTypes", net.minecraft.core.particles.ParticleTypes.class);
         event.add("JavaMath", Math.class);
+        event.add("Duration", java.time.Duration.class);
+
+        // Milliseconds, for the scheduler and for anything comparing timestamps.
+        event.add("SECOND", 1000L);
+        event.add("MINUTE", 60_000L);
+        event.add("HOUR", 3_600_000L);
+
+        // Removed KubeJS globals. Present so an old script fails with an explanation rather than
+        // with 'onEvent is not defined'.
+        event.add("onEvent", new LegacyCodeHandler("onEvent()"));
+        event.add("java", new LegacyCodeHandler("java()"));
+
+        if (event.getType().isServer()) {
+            event.add("settings", new LegacyCodeHandler("settings"));
+        }
 
         for (var group : EventGroup.getGroups().values()) {
             event.add(group.name, new EventGroupWrapper(event.getType(), group));

@@ -38,7 +38,23 @@ public class BlockEventJS extends LevelEventJS {
     }
 
     /**
-     * Returns the block state.
+     * Returns the block this happened to, as something a script can read and change.
+     *
+     * <p>{@code event.block.id}, {@code event.block.down}, {@code event.block.set(...)} — the
+     * shape a KubeJS pack is written against, and the one that lets a listener walk to a
+     * neighbouring block without building a position first.
+     *
+     * @return the block
+     */
+    public BlockContainerJS getBlock() {
+        return new BlockContainerJS(getLevel(), pos);
+    }
+
+    /**
+     * Returns the block state as it was when the event fired.
+     *
+     * <p>Read from the event rather than from the level, which matters on the events that fire
+     * around a change: during {@code broken}, the level may already hold air.
      *
      * @return the state
      */

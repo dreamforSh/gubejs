@@ -31,6 +31,15 @@ public final class GubejsNetwork {
 
     private static final String PROTOCOL = "1";
 
+    /**
+     * The channel this mod talks to itself on.
+     *
+     * <p>Handled before the event is posted and never handed to a script: a pack listening for
+     * "some data arrived" has no business seeing the bookkeeping that keeps {@code player.stages}
+     * answering the same thing on both sides.
+     */
+    public static final String STAGES_CHANNEL = "gubejs:stages";
+
     /** The channel itself, registered as the mod loads. */
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
         Gubejs.id("data"), () -> PROTOCOL,
@@ -82,6 +91,19 @@ public final class GubejsNetwork {
         CHANNEL.sendToServer(new DataPacket(channel, tagOf(data)));
     }
 
+    /**
+     * Applies a stage update on the client.
+     *
+     * <p>A method of its own so the dedicated server never verifies a body that names a client
+     * class — the check above keeps it from being called there, and keeping the reference out of
+     * the calling method keeps it from being resolved either.
+     */
+    private static void receiveStages(CompoundTag data) {
+        if (com.github.gubejs.bindings.PlatformWrapper.isClient()) {
+            com.github.gubejs.client.GubejsClient.applyStages(data);
+        }
+    }
+
     private static CompoundTag tagOf(@Nullable Object data) {
         var tag = NbtHelper.compound(data);
         return tag == null ? new CompoundTag() : tag;
@@ -116,6 +138,11 @@ public final class GubejsNetwork {
             // enqueueWork, not the netty thread: a listener will touch the world, and the world
             // belongs to the server or render thread.
             context.enqueueWork(() -> {
+                if (packet.channel.equals(STAGES_CHANNEL) && context.getSender() == null) {
+                    receiveStages(packet.data);
+                    return;
+                }
+
                 if (!NetworkEvents.DATA_RECEIVED.hasListeners()) {
                     return;
                 }

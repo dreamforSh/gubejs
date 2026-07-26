@@ -5,9 +5,17 @@
   "compatibilityLevel": "JAVA_17",
   "refmap": "gubejs.refmap.json",
   "mixins": [
+    "BlockBehaviourAccessor",
+    "BlockStateBaseAccessor",
+    "EntityMixin",
     "InventoryMixin",
+    "ItemMixin",
+    "ItemStackMixin",
+    "LevelMixin",
     "LootTablesMixin",
+    "MinecraftServerMixin",
     "PlayerAdvancementsMixin",
+    "PlayerMixin",
     "RecipeManagerMixin",
     "TagLoaderMixin"
   ],

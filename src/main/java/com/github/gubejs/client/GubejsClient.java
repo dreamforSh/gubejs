@@ -69,6 +69,32 @@ public final class GubejsClient {
         }
     }
 
+    /**
+     * Copies the stage list the server just sent onto the client's own player object.
+     *
+     * <p>Without this, {@code player.stages} on the client would answer from an empty tag: a
+     * player's persistent data is server-side state and nothing syncs it. A tooltip or HUD element
+     * that gates on a stage needs the answer on the side that draws it.
+     *
+     * @param data the payload of the internal stages message
+     */
+    public static void applyStages(net.minecraft.nbt.CompoundTag data) {
+        var player = net.minecraft.client.Minecraft.getInstance().player;
+
+        if (player == null) {
+            return;
+        }
+
+        var persistent = player.getPersistentData();
+
+        if (!persistent.contains("PlayerPersisted", net.minecraft.nbt.Tag.TAG_COMPOUND)) {
+            persistent.put("PlayerPersisted", new net.minecraft.nbt.CompoundTag());
+        }
+
+        persistent.getCompound("PlayerPersisted")
+            .put("gubejs:stages", data.getList("stages", net.minecraft.nbt.Tag.TAG_STRING));
+    }
+
     // --- game events -------------------------------------------------------------------------
 
     /**

@@ -86,6 +86,13 @@ public class ConsoleJS {
 
     private final List<String> writeQueue;
 
+    /** Running timers, by label. Concurrent because the three script types share none of these. */
+    private final java.util.Map<String, Long> timers = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Running counters, by label. */
+    private final java.util.Map<String, Integer> counters =
+        new java.util.concurrent.ConcurrentHashMap<>();
+
     private String group;
 
     private boolean muted;
@@ -221,6 +228,54 @@ public class ConsoleJS {
         if (group.length() >= 2) {
             group = group.substring(0, group.length() - 2);
         }
+    }
+
+    /**
+     * Starts a timer.
+     *
+     * <p>{@code console.time('recipes')} … {@code console.timeEnd('recipes')} is how a pack finds
+     * out which of its scripts is the slow one, and there is no other way to measure that from
+     * inside a script — {@code Date.now()} on a reload thread measures the reload, not the script.
+     *
+     * @param label what to call it, matched by {@link #timeEnd}
+     */
+    public void time(String label) {
+        timers.put(label, System.nanoTime());
+    }
+
+    /**
+     * Stops a timer and logs how long it ran.
+     *
+     * @param label the label passed to {@link #time}
+     */
+    public void timeEnd(String label) {
+        var startedAt = timers.remove(label);
+
+        if (startedAt == null) {
+            warn("There is no timer called '" + label + "'");
+            return;
+        }
+
+        info(label + ": " + (System.nanoTime() - startedAt) / 1_000_000D + "ms");
+    }
+
+    /**
+     * Counts how many times this line has run, and logs the count.
+     *
+     * @param label what to count, {@code 'default'} when a script passes nothing
+     */
+    public void count(String label) {
+        var next = counters.merge(label, 1, Integer::sum);
+        info(label + ": " + next);
+    }
+
+    /**
+     * Forgets a count.
+     *
+     * @param label the label passed to {@link #count}
+     */
+    public void countReset(String label) {
+        counters.remove(label);
     }
 
     /** Logs the host stack trace, which is occasionally what you want when a binding misbehaves. */

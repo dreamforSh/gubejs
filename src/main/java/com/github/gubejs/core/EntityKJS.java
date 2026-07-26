@@ -1,0 +1,231 @@
+package com.github.gubejs.core;
+
+import com.github.gubejs.block.BlockContainerJS;
+import com.github.gubejs.bindings.TextWrapper;
+import com.github.gubejs.util.NbtHelper;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraftforge.registries.ForgeRegistries;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * What a script can do with any entity, mixed into {@link Entity} itself.
+ *
+ * <p>KubeJS scripts call {@code entity.tell(...)} and read {@code entity.nbt} as though the game's
+ * own {@code Entity} had them. It does not, and wrapping every entity in a script-facing object
+ * instead — the way KubeJS did before 1902 — means a script can never pass one back to a vanilla
+ * method. Adding the methods to the class itself keeps both: the object a script holds is the
+ * entity, and it answers to the names a pack expects.
+ *
+ * <p>Every method here is a default method, so the mixin that installs this interface has no body
+ * of its own and nothing in the game's own class is replaced.
+ */
+public interface EntityKJS {
+
+    /**
+     * Returns this, as the entity it is.
+     *
+     * <p>The cast is safe because the only thing that implements this interface is
+     * {@link Entity}, through a mixin that names it.
+     *
+     * @return this entity
+     */
+    default Entity gjs$self() {
+        return (Entity) this;
+    }
+
+    // --- identity ------------------------------------------------------------------------------
+
+    /**
+     * Returns the entity type id, e.g. {@code minecraft:zombie}.
+     *
+     * <p>Not {@code getType()}: that is the game's own method and returns an {@code EntityType},
+     * which is what a host method taking one still needs.
+     *
+     * @return the id
+     */
+    default String getEntityType() {
+        return String.valueOf(ForgeRegistries.ENTITY_TYPES.getKey(gjs$self().getType()));
+    }
+
+    /**
+     * Reports whether this entity's type is in a tag.
+     *
+     * @param tag the tag id, with or without the leading {@code #}
+     * @return {@code true} if it is
+     */
+    default boolean hasEntityTag(String tag) {
+        var id = ResourceLocation.tryParse(tag.startsWith("#") ? tag.substring(1) : tag);
+        return id != null && gjs$self().getType().is(net.minecraft.tags.TagKey.create(
+            net.minecraft.core.Registry.ENTITY_TYPE_REGISTRY, id));
+    }
+
+    /** @return {@code true} for a player */
+    default boolean isPlayer() {
+        return gjs$self() instanceof Player;
+    }
+
+    /** @return {@code true} for anything with health */
+    default boolean isLiving() {
+        return gjs$self() instanceof LivingEntity;
+    }
+
+    /** @return {@code true} for anything with AI */
+    default boolean isMob() {
+        return gjs$self() instanceof Mob;
+    }
+
+    /** @return {@code true} for a hostile mob */
+    default boolean isMonster() {
+        return gjs$self() instanceof Monster;
+    }
+
+    /** @return {@code true} for a passive animal */
+    default boolean isAnimal() {
+        return gjs$self() instanceof Animal;
+    }
+
+    /** @return {@code true} for a dropped item */
+    default boolean isItemEntity() {
+        return gjs$self() instanceof ItemEntity;
+    }
+
+    // --- data ----------------------------------------------------------------------------------
+
+    /**
+     * Returns everything the entity would be saved with.
+     *
+     * <p>A copy — the entity is not reading from it. {@link #setNbt} writes one back.
+     *
+     * @return the entity's data
+     */
+    default CompoundTag getNbt() {
+        var tag = new CompoundTag();
+        gjs$self().saveWithoutId(tag);
+        return tag;
+    }
+
+    /**
+     * Loads data back into the entity.
+     *
+     * @param value the tag, or an object to convert into one
+     */
+    default void setNbt(@Nullable Object value) {
+        gjs$self().load(NbtHelper.compound(value));
+    }
+
+    /**
+     * Merges keys into the entity's data, leaving the rest alone.
+     *
+     * @param value the keys to set
+     */
+    default void mergeNbt(@Nullable Object value) {
+        var tag = getNbt();
+        tag.merge(NbtHelper.compound(value));
+        gjs$self().load(tag);
+    }
+
+    // --- where it is ---------------------------------------------------------------------------
+
+    /**
+     * Returns the block the entity is standing in.
+     *
+     * @return the block
+     */
+    default BlockContainerJS getBlock() {
+        var entity = gjs$self();
+        return new BlockContainerJS(entity.level, entity.blockPosition());
+    }
+
+    /**
+     * Returns the dimension id the entity is in, e.g. {@code minecraft:the_nether}.
+     *
+     * @return the id
+     */
+    default String getDimension() {
+        return gjs$self().level.dimension().location().toString();
+    }
+
+    /**
+     * Moves the entity.
+     *
+     * @param x the new x
+     * @param y the new y
+     * @param z the new z
+     */
+    default void setPosition(double x, double y, double z) {
+        gjs$self().teleportTo(x, y, z);
+    }
+
+    /**
+     * Moves the entity and points it somewhere.
+     *
+     * @param x the new x
+     * @param y the new y
+     * @param z the new z
+     * @param yaw which way it faces, in degrees
+     * @param pitch how far up or down it looks, in degrees
+     */
+    default void setPositionAndRotation(double x, double y, double z, float yaw, float pitch) {
+        gjs$self().moveTo(x, y, z, yaw, pitch);
+    }
+
+    /**
+     * Sets how fast the entity is moving, in blocks per tick.
+     *
+     * @param x the x component
+     * @param y the y component
+     * @param z the z component
+     */
+    default void setMotion(double x, double y, double z) {
+        var entity = gjs$self();
+        entity.setDeltaMovement(x, y, z);
+        // Without this the change is computed on the server and never sent, so the client keeps
+        // moving the entity the way it already was.
+        entity.hasImpulse = true;
+    }
+
+    // --- messages ------------------------------------------------------------------------------
+
+    /**
+     * Sends the entity a chat message, if it is something that can read one.
+     *
+     * @param message a string, a component, or an array of either
+     */
+    default void tell(@Nullable Object message) {
+        gjs$self().sendSystemMessage(TextWrapper.of(message));
+    }
+
+    /**
+     * Runs a command as this entity, with this entity's permissions.
+     *
+     * @param command the command, without the leading slash
+     * @return what the command returned, or {@code 0} if there is no server
+     */
+    default int runCommand(String command) {
+        var entity = gjs$self();
+        var server = entity.getServer();
+        return server == null ? 0
+            : server.getCommands().performPrefixedCommand(entity.createCommandSourceStack(), command);
+    }
+
+    /**
+     * Runs a command as this entity, without its output appearing in chat.
+     *
+     * @param command the command, without the leading slash
+     * @return what the command returned, or {@code 0} if there is no server
+     */
+    default int runCommandSilent(String command) {
+        var entity = gjs$self();
+        var server = entity.getServer();
+        return server == null ? 0 : server.getCommands().performPrefixedCommand(
+            entity.createCommandSourceStack().withSuppressedOutput(), command);
+    }
+}

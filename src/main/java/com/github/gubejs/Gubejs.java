@@ -198,6 +198,15 @@ public final class Gubejs {
      */
     private void loadComplete(FMLLoadCompleteEvent event) {
         GubejsPlugins.forEachPlugin(GubejsPlugin::afterInit);
+
+        // Before postInit, and only here: every mod's registries are filled by now, which is what
+        // a modification event needs, and nothing has started a world yet, which is what makes
+        // writing into a block state safe.
+        com.github.gubejs.bindings.event.ItemEvents.MODIFICATION.post(ScriptType.STARTUP,
+            new com.github.gubejs.item.ItemModificationEventJS());
+        com.github.gubejs.bindings.event.BlockEvents.MODIFICATION.post(ScriptType.STARTUP,
+            new com.github.gubejs.block.BlockModificationEventJS());
+
         StartupEvents.POST_INIT.post(ScriptType.STARTUP, new StartupEventJS());
         ConsoleJS.STARTUP.flush();
 
