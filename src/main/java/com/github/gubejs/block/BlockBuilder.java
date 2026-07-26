@@ -44,8 +44,9 @@ public class BlockBuilder extends BuilderBase<Block> {
     protected ResourceLocation texture;
 
     /** Filled in once {@link #createObject()} has run, so the block item can point at the block. */
+    /** The built block. Protected so a subclass building a different shape can store its own. */
     @Nullable
-    private Block block;
+    protected Block block;
 
     public BlockBuilder(ResourceLocation id) {
         super(id);

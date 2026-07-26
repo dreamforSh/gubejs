@@ -59,7 +59,10 @@ public final class BuiltinGubejsPlugin extends GubejsPlugin {
     @Override
     public void init() {
         ItemBuilder.registerTypes();
+        com.github.gubejs.item.ToolItemBuilder.registerTypes();
+        com.github.gubejs.item.ArmorItemBuilder.registerTypes();
         BlockBuilder.registerTypes();
+        com.github.gubejs.block.ShapedBlockBuilder.registerTypes();
         com.github.gubejs.fluid.FluidBuilder.registerTypes();
         com.github.gubejs.recipe.RecipeSchema.registerBuiltIn();
     }
