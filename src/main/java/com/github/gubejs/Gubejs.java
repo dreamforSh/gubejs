@@ -207,9 +207,18 @@ public final class Gubejs {
         }
 
         for (var builder : RegistryInfo.BLOCK.getBuilders()) {
-            if (builder instanceof com.github.gubejs.block.BlockBuilder blockBuilder
-                && blockBuilder.hasItem()) {
+            if (!(builder instanceof com.github.gubejs.block.BlockBuilder blockBuilder)) {
+                continue;
+            }
+
+            if (blockBuilder.hasItem()) {
                 RegistryInfo.ITEM.getBuilders().add(new BlockItemBuilder(blockBuilder));
+            }
+
+            if (blockBuilder.getBlockEntityBuilder() != null) {
+                RegistryInfo.BLOCK_ENTITY_TYPE.getBuilders().add(
+                    castBuilder(new com.github.gubejs.block.entity.BlockEntityTypeBuilder(
+                        blockBuilder)));
             }
         }
     }
@@ -295,6 +304,17 @@ public final class Gubejs {
     @SuppressWarnings("unchecked")
     private static <T> ResourceKey<net.minecraft.core.Registry<T>> castKey(ResourceKey<?> key) {
         return (ResourceKey<net.minecraft.core.Registry<T>>) key;
+    }
+
+    /**
+     * Narrows a builder to the element type of the registry it is being added to.
+     *
+     * <p>Same shape as {@link #castKey}: the block entity type registry is generic in a type that
+     * is itself generic, and the wildcard a caller holds cannot be proved equal to it.
+     */
+    @SuppressWarnings("unchecked")
+    private static <T> BuilderBase<? extends T> castBuilder(BuilderBase<?> builder) {
+        return (BuilderBase<? extends T>) builder;
     }
 
     /** Wraps a block builder so its block item registers alongside every other item. */

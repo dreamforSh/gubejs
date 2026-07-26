@@ -155,9 +155,71 @@ public class BlockBuilder extends BuilderBase<Block> {
         return createItem;
     }
 
+    /** What a script asked the block to remember, or {@code null} for a plain block. */
+    @Nullable
+    protected com.github.gubejs.block.entity.BlockEntityBuilder blockEntity;
+
+    /** Filled in when the block entity type is registered, so the entity can name its own type. */
+    @Nullable
+    private net.minecraft.world.level.block.entity.BlockEntityType<?> blockEntityType;
+
+    /**
+     * Gives the block a block entity, so it can hold items or data of its own.
+     *
+     * <pre>{@code
+     * event.create('smelter').blockEntity(be => {
+     *     be.inventorySize = 9
+     *     be.serverTick(20, 0, entity => { ... })
+     * })
+     * }</pre>
+     *
+     * @param action configures the block entity
+     * @return this builder
+     */
+    public BlockBuilder blockEntity(
+        java.util.function.Consumer<com.github.gubejs.block.entity.BlockEntityBuilder> action) {
+        var builder = new com.github.gubejs.block.entity.BlockEntityBuilder();
+        action.accept(builder);
+        blockEntity = builder;
+        return this;
+    }
+
+    /**
+     * Returns what the script asked the block to remember.
+     *
+     * @return the block entity builder, or {@code null} for a plain block
+     */
+    @Nullable
+    public com.github.gubejs.block.entity.BlockEntityBuilder getBlockEntityBuilder() {
+        return blockEntity;
+    }
+
+    /**
+     * Returns the registered block entity type.
+     *
+     * @return the type, or {@code null} before it is registered
+     */
+    @Nullable
+    public net.minecraft.world.level.block.entity.BlockEntityType<?> getBlockEntityType() {
+        return blockEntityType;
+    }
+
+    /**
+     * Remembers the block entity type once the registry has built it.
+     *
+     * @param type the type
+     */
+    public void setBlockEntityType(net.minecraft.world.level.block.entity.BlockEntityType<?> type) {
+        this.blockEntityType = type;
+    }
+
     @Override
     public Block createObject() {
-        block = new Block(createProperties());
+        // A block with memory has to be an EntityBlock, and that is a different class -- the
+        // interface decides whether the game ever asks the block for an entity at all.
+        block = blockEntity == null
+            ? new Block(createProperties())
+            : new com.github.gubejs.block.entity.GubejsEntityBlock(createProperties(), this);
         return block;
     }
 

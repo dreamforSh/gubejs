@@ -30,6 +30,15 @@ public final class RegistryInfo<T> {
     public static final RegistryInfo<Block> BLOCK = register(Registry.BLOCK_REGISTRY, "block");
 
     /**
+     * The block entity type registry.
+     *
+     * <p>Filled from the block builders rather than listened to directly: a script asks for a
+     * block entity through {@code .blockEntity(...)} on the block, which is where it belongs.
+     */
+    public static final RegistryInfo<net.minecraft.world.level.block.entity.BlockEntityType<?>>
+        BLOCK_ENTITY_TYPE = registerRaw(Registry.BLOCK_ENTITY_TYPE_REGISTRY, "block_entity_type");
+
+    /**
      * The fluid registry.
      *
      * <p>A script creates one fluid; five registry entries come out of it — the still and flowing
@@ -51,6 +60,21 @@ public final class RegistryInfo<T> {
 
     private static <T> RegistryInfo<T> register(ResourceKey<? extends Registry<T>> key, String name) {
         var info = new RegistryInfo<T>(key, name);
+        ALL.put(key, info);
+        return info;
+    }
+
+    /**
+     * Registers a registry whose element type is itself generic.
+     *
+     * <p>{@code BlockEntityType<?>} is not the same type as the registry's {@code BlockEntityType<T>},
+     * and no signature can say they are the same registry — the wildcard is what a caller holding
+     * one has, and the cast is where that is admitted.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static <T> RegistryInfo<T> registerRaw(ResourceKey<? extends Registry<?>> key,
+                                                   String name) {
+        var info = new RegistryInfo(key, name);
         ALL.put(key, info);
         return info;
     }
