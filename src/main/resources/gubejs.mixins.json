@@ -10,6 +10,8 @@
     "BlockMixin",
     "BlockStateBaseAccessor",
     "EntityMixin",
+    "GameRulesMixin",
+    "IngredientMixin",
     "InventoryMixin",
     "ItemMixin",
     "ItemStackMixin",

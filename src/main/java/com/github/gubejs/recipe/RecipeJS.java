@@ -120,18 +120,22 @@ public final class RecipeJS {
     }
 
     /**
-     * Puts the recipe behind a game stage.
+     * Puts the recipe behind a pack stage.
      *
-     * <p>Written as a Forge recipe condition, so the recipe is dropped at load time for a player
-     * without the stage rather than hidden at craft time. Needs GameStages installed to supply the
-     * condition; {@code event.stage(filter, name)} checks for that before calling this.
+     * <p>Written as a Forge recipe condition, so the recipe is not loaded at all until the stage is
+     * set, rather than being hidden at craft time. The condition is
+     * {@link StageCondition this mod's own}, so nothing else needs installing.
+     *
+     * <p>The stage is {@link com.github.gubejs.core.PackStages}, which is the whole pack's, not
+     * {@code player.stages}. A condition is asked once as the recipe is read and there is no player
+     * to ask about — a recipe loads for everyone or for no one.
      *
      * @param stage the stage name
      * @return this recipe
      */
     public RecipeJS stage(String stage) {
         var condition = new JsonObject();
-        condition.addProperty("type", "gamestages:stage");
+        condition.addProperty("type", StageCondition.ID.toString());
         condition.addProperty("stage", stage);
 
         var conditions = json.has("conditions") && json.get("conditions").isJsonArray()

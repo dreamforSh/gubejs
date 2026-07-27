@@ -7,8 +7,11 @@ import com.github.gubejs.util.ValueUtils;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraftforge.registries.ForgeRegistries;
@@ -22,6 +25,22 @@ import org.jetbrains.annotations.Nullable;
  * what lets one pair of methods serve a recipe type this mod has never heard of.
  */
 public final class RecipeJson {
+
+    /**
+     * The keys a recipe type puts its result under, in the order they are looked for.
+     *
+     * <p>Shared rather than repeated, and that is the point: every place that has to tell an output
+     * from an input reads this one set. Two lists of these keys drifting apart is not a
+     * hypothetical — it is what made {@code replaceOutput} silently do nothing to a modded recipe
+     * spelling its result {@code output}, while {@code replaceInput} rewrote that same result.
+     *
+     * <p>Ordered, because "which key holds the result" has to answer with the first one present:
+     * a recipe with both {@code result} and {@code output} means the vanilla one.
+     *
+     * <p>{@code minecraft:air} is not special-cased here — a key is a key whatever it holds.
+     */
+    public static final Set<String> RESULT_KEYS = Collections.unmodifiableSet(new LinkedHashSet<>(
+        List.of("result", "results", "output", "outputs", "output_item", "outputItems")));
 
     private RecipeJson() {
     }

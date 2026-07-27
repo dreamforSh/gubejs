@@ -88,6 +88,11 @@ public final class Gubejs {
 
         com.github.gubejs.net.GubejsNetwork.init();
 
+        // Before the scripts, and before any registry event: a recipe condition lives in Forge's
+        // own map rather than in a game registry, and the first datapack load can happen before a
+        // registry event this mod could have listened to.
+        com.github.gubejs.recipe.StageCondition.register();
+
         startupScriptManager = new ScriptManager(ScriptType.STARTUP, GubejsPaths.STARTUP_SCRIPTS);
         clientScriptManager = new ScriptManager(ScriptType.CLIENT, GubejsPaths.CLIENT_SCRIPTS);
 

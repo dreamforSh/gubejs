@@ -110,7 +110,7 @@ public final class RecipeFilter {
             }
         }
 
-        if (outputs != null && !matchesAny(outputs, collectItems(object.get("result")))) {
+        if (outputs != null && !matchesAny(outputs, collectResults(object))) {
             return false;
         }
 
@@ -205,47 +205,78 @@ public final class RecipeFilter {
     }
 
     /**
-     * Collects the item ids a result names.
+     * Collects the item ids a recipe's results name.
      *
-     * <p>{@code result} is a string in some recipe types, an object in others, and an array in a
-     * few modded ones, so all three are handled.
+     * <p>Every key in {@link RecipeJson#RESULT_KEYS}, not just {@code result}: a modded type spells
+     * its output {@code results} or {@code output} as often as not, and an {@code output:} filter
+     * that only understood the vanilla spelling matched none of them.
+     *
+     * <p>Walked to any depth for the same reason {@link #collectIngredients} is — a modded type is
+     * free to nest its whole operation under a key of its own, and a recipe this mod has wrapped
+     * keeps the original one level down. The two walkers agree on where the line is, so a recipe
+     * cannot be invisible to {@code output:} while its inputs are visible to {@code input:}.
      */
-    private static List<String> collectItems(@Nullable JsonElement result) {
+    private static List<String> collectResults(JsonObject recipe) {
         var ids = new ArrayList<String>();
-        collectItemsInto(result, ids);
+        collectResultsInto(recipe, false, ids);
         return ids;
     }
 
-    private static void collectItemsInto(@Nullable JsonElement element, List<String> ids) {
+    /**
+     * @param inResult whether this subtree is part of the recipe's result — turned on by a key from
+     *     {@link RecipeJson#RESULT_KEYS} and never turned off again, since an input cannot be
+     *     nested inside an output
+     */
+    private static void collectResultsInto(@Nullable JsonElement element, boolean inResult,
+                                           List<String> ids) {
         if (element == null || element.isJsonNull()) {
             return;
         } else if (element.isJsonPrimitive()) {
-            ids.add(normalise(element.getAsString()));
+            // A bare id, which is how cooking and stonecutting write their result. Strings only:
+            // a count recursed into would otherwise be collected as if it named something.
+            if (inResult && element.getAsJsonPrimitive().isString()) {
+                ids.add(normalise(element.getAsString()));
+            }
         } else if (element.isJsonArray()) {
-            element.getAsJsonArray().forEach(e -> collectItemsInto(e, ids));
+            element.getAsJsonArray().forEach(e -> collectResultsInto(e, inResult, ids));
         } else if (element.isJsonObject()) {
             var object = element.getAsJsonObject();
 
-            if (object.has("item")) {
-                ids.add(normalise(object.get("item").getAsString()));
-            } else if (object.has("id")) {
-                ids.add(normalise(object.get("id").getAsString()));
+            if (inResult) {
+                for (var key : List.of("item", "id")) {
+                    if (object.has(key) && object.get(key).isJsonPrimitive()) {
+                        // Stops here rather than descending: the rest of a result object is its
+                        // count and NBT, and neither names an item.
+                        ids.add(normalise(object.get(key).getAsString()));
+                        return;
+                    }
+                }
+            }
+
+            for (var entry : object.entrySet()) {
+                if (!entry.getKey().equals("type")) {
+                    collectResultsInto(entry.getValue(),
+                        inResult || RecipeJson.RESULT_KEYS.contains(entry.getKey()), ids);
+                }
             }
         }
     }
 
     /**
-     * Collects every ingredient id anywhere in a recipe, other than its result.
+     * Collects every ingredient id anywhere in a recipe, other than in its results.
      *
      * <p>Walked generically because recipe types put their inputs under different keys —
      * {@code ingredients}, {@code key}, {@code ingredient}, {@code base}, {@code addition} — and
-     * a modded type will invent another one.
+     * a modded type will invent another one. That generality is exactly why the results have to be
+     * excluded by name at every level rather than only at the top: a walker that collects whatever
+     * it finds would report the diamond a recipe <em>produces</em> as one it consumes, and
+     * {@code event.remove({ input: 'minecraft:diamond' })} would take that recipe with it.
      */
     private static List<String> collectIngredients(JsonObject recipe) {
         var ids = new ArrayList<String>();
 
         for (var entry : recipe.entrySet()) {
-            if (!entry.getKey().equals("result") && !entry.getKey().equals("type")) {
+            if (!entry.getKey().equals("type") && !RecipeJson.RESULT_KEYS.contains(entry.getKey())) {
                 collectIngredientsInto(entry.getValue(), ids);
             }
         }
@@ -270,7 +301,8 @@ public final class RecipeFilter {
             }
 
             for (var entry : object.entrySet()) {
-                if (!entry.getKey().equals("item") && !entry.getKey().equals("tag")) {
+                if (!entry.getKey().equals("item") && !entry.getKey().equals("tag")
+                    && !RecipeJson.RESULT_KEYS.contains(entry.getKey())) {
                     collectIngredientsInto(entry.getValue(), ids);
                 }
             }

@@ -123,6 +123,9 @@ public final class GubejsCommands {
      */
     private static int reloadConfig(CommandSourceStack source) {
         CommonProperties.reload();
+        // Read from disk like the properties are, and edited from outside the game just as often --
+        // a pack author turning a stage on to see what unlocks does it in a text editor.
+        com.github.gubejs.core.PackStages.reload();
         source.sendSuccess(Component.literal(
             "Reloaded the config. Settings that configure the script engine itself apply from the "
                 + "next script reload."), false);

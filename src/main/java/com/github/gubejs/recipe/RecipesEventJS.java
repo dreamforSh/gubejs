@@ -1,7 +1,6 @@
 package com.github.gubejs.recipe;
 
 import com.github.gubejs.Gubejs;
-import com.github.gubejs.bindings.PlatformWrapper;
 import com.github.gubejs.event.EventJS;
 import com.github.gubejs.util.ConsoleJS;
 import com.github.gubejs.util.JsonUtils;
@@ -146,10 +145,6 @@ public final class RecipesEventJS extends EventJS {
         return learned == null ? RecipeSchema.GENERIC : learned;
     }
 
-    /** The keys a serialiser is likely to put its result under, in the order they are looked for. */
-    private static final List<String> RESULT_KEYS =
-        List.of("result", "results", "output", "outputs", "output_item", "outputItems");
-
     /** The keys a serialiser is likely to put its ingredients under. */
     private static final List<String> INGREDIENT_KEYS =
         List.of("ingredient", "ingredients", "input", "inputs", "item", "items");
@@ -165,7 +160,7 @@ public final class RecipesEventJS extends EventJS {
         String resultKey = null;
         String ingredientKey = null;
 
-        for (var key : RESULT_KEYS) {
+        for (var key : RecipeJson.RESULT_KEYS) {
             if (sample.has(key)) {
                 resultKey = key;
                 break;
@@ -520,13 +515,16 @@ public final class RecipesEventJS extends EventJS {
             var touched = false;
 
             for (var field : object.entrySet()) {
-                var isResult = field.getKey().equals("result") || field.getKey().equals("results");
-
-                if (field.getKey().equals("type") || isResult != results) {
+                if (field.getKey().equals("type")) {
                     continue;
                 }
 
-                var rewritten = rewrite(field.getValue(), target, replacement);
+                // Descended into rather than skipped, whichever direction this is: a field that is
+                // not itself a result can still contain one -- a modded type nesting its whole
+                // operation under a key of its own, or a recipe this mod has wrapped. Which half
+                // gets rewritten is decided per subtree by rewrite(), from the keys on the way in.
+                var rewritten = rewrite(field.getValue(), target, replacement,
+                    RecipeJson.RESULT_KEYS.contains(field.getKey()), results);
 
                 if (rewritten != null) {
                     field.setValue(rewritten);
@@ -544,17 +542,27 @@ public final class RecipesEventJS extends EventJS {
     }
 
     /**
-     * Rewrites every occurrence of one id inside a JSON subtree.
+     * Rewrites every occurrence of one id inside a JSON subtree, on one side of the recipe.
      *
-     * @return the replacement subtree, or {@code null} if nothing in it matched
+     * <p>{@code inResult} is what keeps {@code replaceInput} off a recipe's output and
+     * {@code replaceOutput} off its inputs. It is worked out on the way down rather than at the
+     * top: a key from {@link RecipeJson#RESULT_KEYS} turns it on, and it stays on for everything
+     * below — because {@code "result": {"item": "x"}} has an {@code item} key that is still part of
+     * the result. Nothing turns it back off, since there is no such thing as an input nested inside
+     * an output.
+     *
+     * @param inResult whether this subtree is part of the recipe's result
+     * @param results which side the caller asked to rewrite
+     * @return the replacement subtree, or {@code null} if nothing in it was rewritten
      */
     @Nullable
-    private JsonElement rewrite(JsonElement element, String target, JsonElement replacement) {
+    private JsonElement rewrite(JsonElement element, String target, JsonElement replacement,
+                                boolean inResult, boolean results) {
         if (element.isJsonPrimitive()) {
             // A bare id, which is how cooking and stonecutting results are written.
             var id = element.getAsString();
 
-            if (!withNamespace(id).equals(target)) {
+            if (inResult != results || !withNamespace(id).equals(target)) {
                 return null;
             }
 
@@ -565,7 +573,7 @@ public final class RecipesEventJS extends EventJS {
             var touched = false;
 
             for (var i = 0; i < array.size(); i++) {
-                var rewritten = rewrite(array.get(i), target, replacement);
+                var rewritten = rewrite(array.get(i), target, replacement, inResult, results);
 
                 if (rewritten != null) {
                     array.set(i, rewritten);
@@ -579,7 +587,7 @@ public final class RecipesEventJS extends EventJS {
             var key = target.startsWith("#") ? "tag" : "item";
             var wanted = target.startsWith("#") ? target.substring(1) : target;
 
-            if (object.has(key) && object.get(key).isJsonPrimitive()
+            if (inResult == results && object.has(key) && object.get(key).isJsonPrimitive()
                 && withNamespace(object.get(key).getAsString()).equals(wanted)) {
                 // The whole ingredient object is replaced, so an item-to-tag swap works and the
                 // count on a result is preserved from the replacement, not the original.
@@ -589,7 +597,8 @@ public final class RecipesEventJS extends EventJS {
             var touched = false;
 
             for (var field : object.entrySet()) {
-                var rewritten = rewrite(field.getValue(), target, replacement);
+                var rewritten = rewrite(field.getValue(), target, replacement,
+                    inResult || RecipeJson.RESULT_KEYS.contains(field.getKey()), results);
 
                 if (rewritten != null) {
                     field.setValue(rewritten);
@@ -604,23 +613,21 @@ public final class RecipesEventJS extends EventJS {
     }
 
     /**
-     * Puts every matching recipe behind a game stage.
+     * Puts every matching recipe behind a pack stage.
      *
-     * <p>Needs GameStages installed, which is where the condition type comes from; without it a
-     * recipe carrying the condition would be dropped by every load, so nothing is written and the
-     * call is reported instead.
+     * <pre>{@code
+     * event.stage({ output: 'minecraft:netherite_ingot' }, 'nether_open')
+     * }</pre>
+     *
+     * <p>The condition written is {@link StageCondition this mod's own}, so no other mod has to be
+     * installed. It gates on {@link com.github.gubejs.core.PackStages} — the whole pack's stages,
+     * not one player's; see that class for why a recipe condition cannot be per player.
      *
      * @param filter which recipes
      * @param stage the stage name
      * @return how many recipes were staged
      */
     public int stage(@Nullable Object filter, String stage) {
-        if (!PlatformWrapper.isLoaded("gamestages")) {
-            ConsoleJS.SERVER.warn("stage('" + stage + "') needs GameStages installed; "
-                + "the recipes were left alone");
-            return 0;
-        }
-
         var count = 0;
 
         for (var recipe : findRecipes(filter)) {
@@ -710,7 +717,7 @@ public final class RecipesEventJS extends EventJS {
     private ResourceLocation guessId(JsonObject json, @Nullable ResourceLocation type) {
         String name = null;
 
-        for (var key : RESULT_KEYS) {
+        for (var key : RecipeJson.RESULT_KEYS) {
             name = nameOf(json.get(key));
 
             if (name != null) {

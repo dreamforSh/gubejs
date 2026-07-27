@@ -51,6 +51,14 @@ public interface GubejsPaths {
     /** Machine-local state that does not belong in a pack repository. */
     Path LOCAL = dir(GAME_DIRECTORY.resolve("local").resolve(Gubejs.MOD_ID));
 
+    /**
+     * The stages the whole pack has reached, one name per line.
+     *
+     * <p>Here rather than in the world save because a recipe condition is asked before a server
+     * exists — see {@link com.github.gubejs.core.PackStages}.
+     */
+    Path PACK_STAGES = LOCAL.resolve("stages.txt");
+
     /** Where {@code /gubejs export} and friends put their dumps. */
     Path EXPORT = dir(LOCAL.resolve("export"));
 

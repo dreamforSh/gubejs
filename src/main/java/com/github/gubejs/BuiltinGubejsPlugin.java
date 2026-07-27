@@ -131,6 +131,9 @@ public final class BuiltinGubejsPlugin extends GubejsPlugin {
         // KubeJS binds the same wrapper under both names, and packs use both.
         event.add("Component", TextWrapper.class);
         event.add("Utils", UtilsWrapper.class);
+        // The pack's own stages, which is what recipe.stage() gates on. Not player.stages -- see
+        // PackStages for why a recipe condition cannot be per player.
+        event.add("PackStages", com.github.gubejs.core.PackStages.class);
         event.add("KMath", KMath.class);
         event.add("Color", ColorWrapper.class);
         event.add("UUID", UUIDWrapper.class);
