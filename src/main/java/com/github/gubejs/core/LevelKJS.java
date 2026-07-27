@@ -142,6 +142,53 @@ public interface LevelKJS {
     }
 
     /**
+     * Sets off a firework.
+     *
+     * <pre>{@code
+     * event.level.spawnFireworks(x, y, z, {
+     *     flight: 2,
+     *     type: 'large_ball',
+     *     colors: [0xFF0000, 0xFFAA00],
+     *     trail: true
+     * })
+     * }</pre>
+     *
+     * <p>Shapes are {@code small_ball}, {@code large_ball}, {@code star}, {@code creeper} and
+     * {@code burst}; {@code flight} is how long the rocket climbs before it goes off, in the same
+     * 1-to-3 the crafting recipe uses. Leaving the description off gives a white ball.
+     *
+     * @param x where
+     * @param y where
+     * @param z where
+     * @param description what the firework looks like
+     * @return the rocket, or {@code null} on the client, which cannot spawn one
+     */
+    @Nullable
+    default Entity spawnFireworks(double x, double y, double z, @Nullable Object description) {
+        if (!(gjs$self() instanceof ServerLevel serverLevel)) {
+            return null;
+        }
+
+        var rocket = new net.minecraft.world.entity.projectile.FireworkRocketEntity(serverLevel,
+            x, y, z, com.github.gubejs.level.FireworksJS.createStack(description));
+        serverLevel.addFreshEntity(rocket);
+        return rocket;
+    }
+
+    /**
+     * Sets off a plain white firework.
+     *
+     * @param x where
+     * @param y where
+     * @param z where
+     * @return the rocket, or {@code null} on the client
+     */
+    @Nullable
+    default Entity spawnFireworks(double x, double y, double z) {
+        return spawnFireworks(x, y, z, null);
+    }
+
+    /**
      * Strikes lightning.
      *
      * @param x where
@@ -209,12 +256,13 @@ public interface LevelKJS {
      * @param volume how loud, where {@code 1} is normal
      * @param pitch how high, where {@code 1} is normal
      */
-    default void playSound(String id, double x, double y, double z, float volume, float pitch) {
+    default void playSound(String id, double x, double y, double z, double volume, double pitch) {
         var sound = ForgeRegistries.SOUND_EVENTS.getValue(
             ResourceLocation.tryParse(id.indexOf(':') == -1 ? "minecraft:" + id : id));
 
         if (sound != null) {
-            gjs$self().playSound(null, x, y, z, sound, SoundSource.MASTER, volume, pitch);
+            gjs$self().playSound(null, x, y, z, sound, SoundSource.MASTER,
+                (float) volume, (float) pitch);
         }
     }
 
@@ -267,6 +315,67 @@ public interface LevelKJS {
      */
     default String getDimension() {
         return gjs$self().dimension().location().toString();
+    }
+
+    /**
+     * Returns the biome at a point, e.g. {@code minecraft:plains}.
+     *
+     * <p>Not the biome object: a biome is a datapack entry rather than a registry constant in this
+     * version, so a script that wants to compare one has its id and nothing else.
+     *
+     * @param x where
+     * @param y where
+     * @param z where
+     * @return the biome id, or an empty string if the biome is not in the registry
+     */
+    default String getBiomeId(int x, int y, int z) {
+        var biome = gjs$self().getBiome(new BlockPos(x, y, z));
+        return biome.unwrapKey().map(key -> key.location().toString()).orElse("");
+    }
+
+    /**
+     * Reports whether the sky is visible from a point.
+     *
+     * @param x where
+     * @param y where
+     * @param z where
+     * @return {@code true} if nothing is in the way
+     */
+    default boolean canSeeSky(int x, int y, int z) {
+        return gjs$self().canSeeSky(new BlockPos(x, y, z));
+    }
+
+    /**
+     * Reports whether it is raining in this level.
+     *
+     * @return {@code true} while it rains
+     */
+    default boolean isRaining() {
+        return gjs$self().isRaining();
+    }
+
+    /**
+     * Reports whether it is thundering in this level.
+     *
+     * @return {@code true} during a thunderstorm
+     */
+    default boolean isThundering() {
+        return gjs$self().isThundering();
+    }
+
+    /**
+     * Sets the weather.
+     *
+     * @param rainTicks how much longer it rains for
+     * @param thunderTicks how much longer it thunders for
+     * @param raining whether it should rain
+     * @param thundering whether it should thunder
+     */
+    default void setWeather(int rainTicks, int thunderTicks, boolean raining, boolean thundering) {
+        if (gjs$self() instanceof ServerLevel serverLevel) {
+            serverLevel.setWeatherParameters(raining || thundering ? 0 : rainTicks,
+                raining || thundering ? rainTicks : 0, raining, thundering);
+        }
     }
 
     /**

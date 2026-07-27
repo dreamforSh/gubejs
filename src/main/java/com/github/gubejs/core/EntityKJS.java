@@ -2,6 +2,8 @@ package com.github.gubejs.core;
 
 import com.github.gubejs.block.BlockContainerJS;
 import com.github.gubejs.bindings.TextWrapper;
+import com.github.gubejs.entity.EntityPotionEffectsJS;
+import com.github.gubejs.entity.RayTraceResultJS;
 import com.github.gubejs.util.NbtHelper;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
@@ -173,8 +175,8 @@ public interface EntityKJS {
      * @param yaw which way it faces, in degrees
      * @param pitch how far up or down it looks, in degrees
      */
-    default void setPositionAndRotation(double x, double y, double z, float yaw, float pitch) {
-        gjs$self().moveTo(x, y, z, yaw, pitch);
+    default void setPositionAndRotation(double x, double y, double z, double yaw, double pitch) {
+        gjs$self().moveTo(x, y, z, (float) yaw, (float) pitch);
     }
 
     /**
@@ -190,6 +192,108 @@ public interface EntityKJS {
         // Without this the change is computed on the server and never sent, so the client keeps
         // moving the entity the way it already was.
         entity.hasImpulse = true;
+    }
+
+    /**
+     * Adds to how fast the entity is moving, rather than replacing it.
+     *
+     * @param x the x component
+     * @param y the y component
+     * @param z the z component
+     */
+    default void addMotion(double x, double y, double z) {
+        var entity = gjs$self();
+        var motion = entity.getDeltaMovement();
+        entity.setDeltaMovement(motion.x + x, motion.y + y, motion.z + z);
+        entity.hasImpulse = true;
+    }
+
+    // --- looking at ----------------------------------------------------------------------------
+
+    /**
+     * Returns what the entity is looking at.
+     *
+     * <pre>{@code
+     * const hit = event.player.rayTrace(20)
+     * if (hit?.block?.id === 'minecraft:diamond_ore') {
+     *     hit.block.set('minecraft:air')
+     * }
+     * }</pre>
+     *
+     * <p>Entities are preferred over blocks the way the game's own crosshair does it: an entity
+     * standing in front of a wall is what the player is looking at, and the wall behind it is not.
+     *
+     * @param distance how far to look, in blocks
+     * @param hitFluids whether water counts as something to hit
+     * @return what was found, or {@code null} if the trace hit nothing at all
+     */
+    @Nullable
+    default RayTraceResultJS rayTrace(double distance, boolean hitFluids) {
+        var entity = gjs$self();
+        var start = entity.getEyePosition(1F);
+        var look = entity.getViewVector(1F);
+        var end = start.add(look.scale(distance));
+
+        var blockHit = entity.level.clip(new net.minecraft.world.level.ClipContext(start, end,
+            net.minecraft.world.level.ClipContext.Block.OUTLINE,
+            hitFluids ? net.minecraft.world.level.ClipContext.Fluid.ANY
+                : net.minecraft.world.level.ClipContext.Fluid.NONE, entity));
+
+        // Entities are only looked for up to wherever the block trace stopped, so a wall really
+        // does block the line of sight rather than being seen through.
+        var reach = blockHit.getType() == net.minecraft.world.phys.HitResult.Type.MISS
+            ? distance : blockHit.getLocation().distanceTo(start);
+        var box = entity.getBoundingBox().expandTowards(look.scale(distance)).inflate(1D);
+
+        var entityHit = net.minecraft.world.entity.projectile.ProjectileUtil.getEntityHitResult(
+            entity, start, end, box,
+            other -> !other.isSpectator() && other.isPickable(), reach * reach);
+
+        if (entityHit != null) {
+            return new RayTraceResultJS(entity, entityHit);
+        }
+
+        return blockHit.getType() == net.minecraft.world.phys.HitResult.Type.MISS
+            ? null : new RayTraceResultJS(entity, blockHit);
+    }
+
+    /**
+     * Returns what the entity is looking at, ignoring water.
+     *
+     * @param distance how far to look, in blocks
+     * @return what was found, or {@code null}
+     */
+    @Nullable
+    default RayTraceResultJS rayTrace(double distance) {
+        return rayTrace(distance, false);
+    }
+
+    /**
+     * Returns what the entity is looking at, as far as a player can reach.
+     *
+     * @return what was found, or {@code null}
+     */
+    @Nullable
+    default RayTraceResultJS rayTrace() {
+        return rayTrace(5D, false);
+    }
+
+    // --- effects -------------------------------------------------------------------------------
+
+    /**
+     * Returns the status effects on this entity.
+     *
+     * <pre>{@code
+     * event.entity.potionEffects.add('minecraft:glowing', 200, 1)
+     * }</pre>
+     *
+     * @return the effects, or {@code null} for an entity that cannot have any — an item on the
+     *     ground, a boat, a painting
+     */
+    @Nullable
+    default EntityPotionEffectsJS getPotionEffects() {
+        return gjs$self() instanceof LivingEntity living
+            ? new EntityPotionEffectsJS(living) : null;
     }
 
     // --- messages ------------------------------------------------------------------------------

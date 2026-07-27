@@ -36,10 +36,10 @@ public final class ScriptToolTier implements Tier {
     public int uses = Tiers.IRON.getUses();
 
     /** How fast it breaks blocks. Iron is 6. */
-    public float speed = Tiers.IRON.getSpeed();
+    public double speed = Tiers.IRON.getSpeed();
 
     /** Added to a tool's own attack damage. Iron is 2. */
-    public float attackDamageBonus = Tiers.IRON.getAttackDamageBonus();
+    public double attackDamageBonus = Tiers.IRON.getAttackDamageBonus();
 
     /** How hard a block it can mine. Stone is 1, iron 2, diamond 3, netherite 4. */
     public int level = Tiers.IRON.getLevel();
@@ -57,12 +57,12 @@ public final class ScriptToolTier implements Tier {
 
     @Override
     public float getSpeed() {
-        return speed;
+        return (float) speed;
     }
 
     @Override
     public float getAttackDamageBonus() {
-        return attackDamageBonus;
+        return (float) attackDamageBonus;
     }
 
     @Override

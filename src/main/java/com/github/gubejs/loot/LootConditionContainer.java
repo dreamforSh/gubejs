@@ -51,7 +51,7 @@ public interface LootConditionContainer<T> {
      * @param chance 0 to 1
      * @return this
      */
-    default T randomChance(float chance) {
+    default T randomChance(double chance) {
         var json = condition("minecraft:random_chance");
         json.addProperty("chance", chance);
         return addCondition(json);
@@ -64,7 +64,7 @@ public interface LootConditionContainer<T> {
      * @param lootingMultiplier how much each level of Looting adds
      * @return this
      */
-    default T randomChanceWithLooting(float chance, float lootingMultiplier) {
+    default T randomChanceWithLooting(double chance, double lootingMultiplier) {
         var json = condition("minecraft:random_chance_with_looting");
         json.addProperty("chance", chance);
         json.addProperty("looting_multiplier", lootingMultiplier);

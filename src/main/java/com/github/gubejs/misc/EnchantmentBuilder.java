@@ -248,8 +248,8 @@ public class EnchantmentBuilder extends BuilderBase<Enchantment> {
      * @param damageBonus half-hearts per level
      * @return this builder
      */
-    public EnchantmentBuilder damageBonus(float damageBonus) {
-        this.damageBonus = damageBonus;
+    public EnchantmentBuilder damageBonus(double damageBonus) {
+        this.damageBonus = (float) damageBonus;
         return this;
     }
 

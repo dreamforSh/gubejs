@@ -36,7 +36,6 @@ import com.github.gubejs.server.ServerScriptManager;
 import com.github.gubejs.util.ConsoleJS;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
-import net.minecraftforge.event.AddReloadListenerEvent;
 import net.minecraftforge.event.CommandEvent;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.ServerChatEvent;
@@ -74,16 +73,6 @@ import org.jetbrains.annotations.Nullable;
 public final class GubejsEventHandler {
 
     // --- server lifecycle --------------------------------------------------------------------
-
-    /**
-     * Marks server scripts as stale so the reload that is starting picks up edited files.
-     *
-     * @param event Forge's reload listener registration, which fires at the start of each reload
-     */
-    @SubscribeEvent
-    public void reloadStarted(AddReloadListenerEvent event) {
-        ServerScriptManager.markDirty();
-    }
 
     @SubscribeEvent
     public void serverStarted(ServerStartedEvent event) {

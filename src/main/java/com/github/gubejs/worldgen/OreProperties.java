@@ -125,8 +125,8 @@ public class OreProperties {
      *
      * @param chance 0 for never, 1 for always
      */
-    public void setDiscardChanceOnAirExposure(float chance) {
-        discardChanceOnAirExposure = chance;
+    public void setDiscardChanceOnAirExposure(double chance) {
+        discardChanceOnAirExposure = (float) chance;
     }
 
     /**

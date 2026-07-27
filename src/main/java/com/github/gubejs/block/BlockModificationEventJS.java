@@ -1,5 +1,6 @@
 package com.github.gubejs.block;
 
+import com.github.gubejs.core.BlockKJS;
 import com.github.gubejs.event.EventJS;
 import com.github.gubejs.mixin.BlockBehaviourAccessor;
 import com.github.gubejs.mixin.BlockStateBaseAccessor;
@@ -67,6 +68,16 @@ public class BlockModificationEventJS extends EventJS {
     private static void apply(Block block, BlockModifications modifications) {
         if (modifications.resistance != null) {
             ((BlockBehaviourAccessor) block).gubejs$setExplosionResistance(modifications.resistance);
+        }
+
+        if (modifications.callbacks != null && !modifications.callbacks.isEmpty()) {
+            ((BlockKJS) block).gjs$setCallbacks(modifications.callbacks);
+
+            // The block rather than its states: whether a block ticks randomly is one flag on the
+            // block, and every state reads it back through the block it belongs to.
+            if (modifications.callbacks.wantsRandomTicks()) {
+                ((BlockBehaviourAccessor) block).gubejs$setRandomlyTicking(true);
+            }
         }
 
         if (modifications.hardness == null && modifications.requiresTool == null) {

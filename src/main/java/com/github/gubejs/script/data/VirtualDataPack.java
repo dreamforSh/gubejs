@@ -9,6 +9,7 @@ import java.io.ByteArrayInputStream;
 import java.io.FileNotFoundException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -20,21 +21,28 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.PackResources;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.metadata.MetadataSectionSerializer;
-import net.minecraft.server.packs.repository.Pack;
-import net.minecraft.server.packs.repository.PackSource;
-import net.minecraftforge.event.AddPackFindersEvent;
+import net.minecraft.server.packs.resources.MultiPackResourceManager;
+import net.minecraft.server.packs.resources.ResourceManager;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * A datapack whose files come from {@code ServerEvents.highPriorityData} and
  * {@code lowPriorityData} rather than from disk.
  *
- * <h2>When the event runs</h2>
+ * <h2>When the event runs, and why it is not a pack the repository knows about</h2>
  *
- * <p>In the constructor, which is reached through the supplier {@link Pack} keeps — and that
- * supplier is called once per reload, as the pack is opened. So the files are rebuilt every time
- * the datapacks reload, which is what a pack author expects from {@code /reload}, and never at any
- * other moment.
+ * <p>These used to be registered through Forge's pack finder, built by a supplier the repository
+ * called. That could not work: the repository opens its packs before the datapack load begins, and
+ * server scripts do not load until the load is under way — so the event was posted before anything
+ * was listening to it. On a fresh server that meant a script's files simply did not exist; after a
+ * {@code /reload} they were whatever the previous load had written. The supplier was also called an
+ * extra time to read the pack's metadata, so the event ran more than once per reload.
+ *
+ * <p>So the packs are not in the repository at all. {@link #wrap} builds them at the start of the
+ * datapack load, once the scripts have run, and hands back a resource manager with them in it. That
+ * is also the only order that works: a resource manager indexes every pack's namespaces as it is
+ * constructed, so a pack that is still empty at that moment is one whose files can never be found —
+ * which is the bug the obvious "add the packs, then fill them" arrangement has.
  *
  * <h2>Why two of them</h2>
  *
@@ -55,7 +63,43 @@ public final class VirtualDataPack implements PackResources {
     private VirtualDataPack(String name, boolean highPriority) {
         this.name = name;
         this.highPriority = highPriority;
+    }
 
+    /**
+     * Returns a resource manager holding everything {@code original} does, plus whatever the
+     * datapack events wrote.
+     *
+     * <p>Called at the start of the datapack load, after the scripts have run, with the manager the
+     * reload was about to use. The original is returned unchanged when no script wrote anything,
+     * which is the usual case and saves indexing every pack a second time.
+     *
+     * @param original the resource manager the reload built
+     * @return the one it should use instead
+     */
+    public static ResourceManager wrap(ResourceManager original) {
+        var low = new VirtualDataPack("Gubejs Data (low priority)", false);
+        var high = new VirtualDataPack("Gubejs Data (high priority)", true);
+
+        low.fill();
+        high.fill();
+
+        if (low.files.isEmpty() && high.files.isEmpty()) {
+            return original;
+        }
+
+        // Last wins: a resource manager searches its packs back to front. So the low-priority pack
+        // goes in front of everything, where it is only reached for a file nothing else supplied,
+        // and the high-priority one goes last, where it overrides.
+        var packs = new ArrayList<PackResources>();
+        packs.add(low);
+        original.listPacks().forEach(packs::add);
+        packs.add(high);
+
+        return new MultiPackResourceManager(PackType.SERVER_DATA, packs);
+    }
+
+    /** Posts this pack's event and works out which namespaces it ended up holding. */
+    private void fill() {
         var handler = highPriority ? ServerEvents.HIGH_DATA : ServerEvents.LOW_DATA;
 
         if (handler.hasListeners()) {
@@ -69,32 +113,6 @@ public final class VirtualDataPack implements PackResources {
         if (!files.isEmpty()) {
             Gubejs.LOGGER.info("{} supplied {} datapack file(s)", name, files.size());
         }
-    }
-
-    /**
-     * Registers both virtual packs.
-     *
-     * @param event Forge's pack discovery event, which fires once per pack type
-     */
-    public static void register(AddPackFindersEvent event) {
-        if (event.getPackType() != PackType.SERVER_DATA) {
-            return;
-        }
-
-        add(event, "gubejs_data_high", "Gubejs Data (high priority)", true, Pack.Position.TOP);
-        add(event, "gubejs_data_low", "Gubejs Data (low priority)", false, Pack.Position.BOTTOM);
-    }
-
-    private static void add(AddPackFindersEvent event, String id, String title,
-                            boolean highPriority, Pack.Position position) {
-        event.addRepositorySource((consumer, constructor) -> {
-            var pack = Pack.create(id, true, () -> new VirtualDataPack(title, highPriority),
-                constructor, position, PackSource.DEFAULT);
-
-            if (pack != null) {
-                consumer.accept(pack);
-            }
-        });
     }
 
     @Nullable

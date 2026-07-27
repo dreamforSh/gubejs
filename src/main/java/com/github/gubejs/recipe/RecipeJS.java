@@ -105,7 +105,7 @@ public final class RecipeJS {
      * @param xp the experience
      * @return this recipe
      */
-    public RecipeJS xp(float xp) {
+    public RecipeJS xp(double xp) {
         return set("experience", xp);
     }
 

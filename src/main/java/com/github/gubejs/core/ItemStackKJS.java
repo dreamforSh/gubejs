@@ -95,6 +95,56 @@ public interface ItemStackKJS {
     }
 
     /**
+     * Returns a copy of this stack renamed.
+     *
+     * <p>The name is set the way an anvil sets one, so it is not italicised — which is what the
+     * game does to a name written straight into the tag, and never what a pack meant.
+     *
+     * @param name a string or a component, or {@code null} to take a custom name back off
+     * @return the copy
+     */
+    default ItemStack withName(@Nullable Object name) {
+        var copy = gjs$self().copy();
+
+        if (name == null) {
+            copy.resetHoverName();
+            return copy;
+        }
+
+        var component = com.github.gubejs.bindings.TextWrapper.of(name);
+
+        // The game italicises any custom name while drawing the tooltip. Saying "not italic" on the
+        // component itself is what overrides that, and is the only way to get a plainly named item.
+        // A script that asked for italics has already set the flag and is left alone.
+        if (!component.getStyle().isItalic()) {
+            component = component.copy().withStyle(style -> style.withItalic(false));
+        }
+
+        copy.setHoverName(component);
+        return copy;
+    }
+
+    /**
+     * Returns a copy of this stack with the lines shown under its name.
+     *
+     * @param lines a string, a component, or an array of either
+     * @return the copy
+     */
+    default ItemStack withLore(@Nullable Object lines) {
+        var copy = gjs$self().copy();
+        var lore = new net.minecraft.nbt.ListTag();
+
+        for (var line : com.github.gubejs.util.ValueUtils.listOf(lines)) {
+            lore.add(net.minecraft.nbt.StringTag.valueOf(
+                net.minecraft.network.chat.Component.Serializer.toJson(
+                    com.github.gubejs.bindings.TextWrapper.of(line))));
+        }
+
+        copy.getOrCreateTagElement("display").put("Lore", lore);
+        return copy;
+    }
+
+    /**
      * Reports whether the item is in a tag.
      *
      * @param tag the tag id, with or without the leading {@code #}

@@ -83,8 +83,8 @@ public class SoundEventBuilder extends BuilderBase<SoundEvent> {
      * @param range the distance in blocks
      * @return this builder
      */
-    public SoundEventBuilder range(float range) {
-        this.range = range;
+    public SoundEventBuilder range(double range) {
+        this.range = (float) range;
         return this;
     }
 

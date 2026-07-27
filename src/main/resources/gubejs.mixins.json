@@ -6,6 +6,8 @@
   "refmap": "gubejs.refmap.json",
   "mixins": [
     "BlockBehaviourAccessor",
+    "BlockBehaviourMixin",
+    "BlockMixin",
     "BlockStateBaseAccessor",
     "EntityMixin",
     "InventoryMixin",
@@ -17,6 +19,7 @@
     "PlayerAdvancementsMixin",
     "PlayerMixin",
     "RecipeManagerMixin",
+    "ReloadableServerResourcesMixin",
     "TagLoaderMixin"
   ],
   "client": [

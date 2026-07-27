@@ -93,8 +93,8 @@ public class ToolItemBuilder extends ItemBuilder {
      * @param damage the modifier; a vanilla sword is 3 and an axe is 6
      * @return this builder
      */
-    public ToolItemBuilder attackDamageBaseline(float damage) {
-        attackDamageBaseline = damage;
+    public ToolItemBuilder attackDamageBaseline(double damage) {
+        attackDamageBaseline = (float) damage;
         return this;
     }
 
@@ -104,8 +104,8 @@ public class ToolItemBuilder extends ItemBuilder {
      * @param speed a negative offset from four swings per second; a sword is -2.4
      * @return this builder
      */
-    public ToolItemBuilder speedBaseline(float speed) {
-        speedBaseline = speed;
+    public ToolItemBuilder speedBaseline(double speed) {
+        speedBaseline = (float) speed;
         return this;
     }
 

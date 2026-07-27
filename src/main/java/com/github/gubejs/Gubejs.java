@@ -95,6 +95,12 @@ public final class Gubejs {
         ScriptType.CLIENT.setManager(() -> clientScriptManager);
         ScriptType.SERVER.setManager(ServerScriptManager::get);
 
+        // Before startup scripts, since one of them may listen to a loading event. The bus is
+        // fetched from a thread local that is only set while this constructor runs, and the scripts
+        // below run on a worker of their own -- so it has to be captured here rather than there.
+        var modBus = FMLJavaModLoadingContext.get().getModEventBus();
+        com.github.gubejs.event.ForgeEventBridge.setModEventBus(modBus);
+
         // No resource manager yet -- there is no game to have one. Startup scripts therefore come
         // from the pack directory only, which is also the only place they would be useful from.
         startupScriptManager.reload(null);
@@ -111,7 +117,6 @@ public final class Gubejs {
         expandBuilders();
         buildWorldgen();
 
-        var modBus = FMLJavaModLoadingContext.get().getModEventBus();
         com.github.gubejs.recipe.GubejsRecipes.init(modBus);
         modBus.addListener(this::registerObjects);
         modBus.addListener(this::addPackFinders);
@@ -265,8 +270,10 @@ public final class Gubejs {
      * @param event Forge's pack discovery event, fired once per pack type
      */
     private void addPackFinders(AddPackFindersEvent event) {
+        // Only the packs that are real directories. What the datapack events write is added at the
+        // start of each datapack load instead -- see VirtualDataPack, which explains why a pack
+        // built from script output cannot be one the repository opens for itself.
         com.github.gubejs.script.data.GeneratedPack.register(event);
-        com.github.gubejs.script.data.VirtualDataPack.register(event);
     }
 
     /**

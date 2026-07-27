@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.graalvm.polyglot.Value;
@@ -46,6 +47,10 @@ public final class EventHandler implements ProxyExecutable {
     public Extra extra;
 
     private boolean hasResult;
+
+    /** Told about each registration, for an event that has to arrange to be fired at all. */
+    @Nullable
+    private BiConsumer<ScriptType, Object> onListen;
 
     /**
      * Listeners with no id, indexed by {@link ScriptType#ordinal()}.
@@ -91,6 +96,24 @@ public final class EventHandler implements ProxyExecutable {
      */
     public EventHandler extra(Extra extra) {
         this.extra = extra;
+        return this;
+    }
+
+    /**
+     * Declares work to do whenever a listener is registered.
+     *
+     * <p>Almost no event needs this: the game fires them whether a pack listens or not, so there is
+     * nothing to arrange. The exception is an event that stands for something outside this mod's
+     * own dispatch — {@code ForgeEvents.onEvent}, whose id names a Forge event class this mod is
+     * not subscribed to until a script asks for it.
+     *
+     * <p>Called once per {@code listen}, with the transformed id, and so has to be idempotent.
+     *
+     * @param onListen receives the script type and the transformed id
+     * @return this handler
+     */
+    public EventHandler onListen(BiConsumer<ScriptType, Object> onListen) {
+        this.onListen = onListen;
         return this;
     }
 
@@ -171,6 +194,13 @@ public final class EventHandler implements ProxyExecutable {
         }
 
         var key = validateId(extraId);
+
+        // Before anything is stored, so that a listener whose subject cannot be arranged -- a Forge
+        // event class the bus refuses -- fails outright rather than sitting there never firing.
+        if (onListen != null) {
+            onListen.accept(type, key);
+        }
+
         EventHandlerContainer[] containers;
 
         if (key == null) {

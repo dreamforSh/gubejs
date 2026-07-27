@@ -527,7 +527,7 @@ public final class ScriptManager {
             var previousType = ScriptType.push(scriptType);
 
             try {
-                function.executeVoid(event);
+                function.executeVoid(event.gjs$scriptValue());
             } finally {
                 ScriptType.push(previousType);
                 lock.unlock();
@@ -548,6 +548,21 @@ public final class ScriptManager {
     /** Whether listeners may be registered right now. */
     public boolean canListenEvents() {
         return canListenEvents;
+    }
+
+    /**
+     * Whether this thread is currently running scripts of this type.
+     *
+     * <p>What a caller has to ask before reloading: a reload closes the context, and closing one
+     * that a thread is inside cancels whatever it was executing. That happens for real — a script
+     * that runs {@code /reload} is inside the context the reload is about to throw away, and the
+     * command runs the first stages of the reload on the calling thread rather than deferring
+     * them.
+     *
+     * @return {@code true} if a reload from this thread would cancel the caller
+     */
+    public boolean isRunningOnThisThread() {
+        return lock.isHeldByCurrentThread();
     }
 
     /**

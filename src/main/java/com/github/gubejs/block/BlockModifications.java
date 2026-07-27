@@ -23,6 +23,72 @@ public final class BlockModifications {
     @Nullable
     public Boolean requiresTool;
 
+    /** The behaviour a script gave the block, or {@code null} if it gave it none. */
+    @Nullable
+    public BlockCallbacks callbacks;
+
+    /**
+     * Returns the callbacks, creating a set on first use.
+     *
+     * @return the callbacks
+     */
+    private BlockCallbacks callbacks() {
+        if (callbacks == null) {
+            callbacks = new BlockCallbacks();
+        }
+
+        return callbacks;
+    }
+
+    /**
+     * Runs a callback on every random tick, turning random ticking on for the block.
+     *
+     * <pre>{@code
+     * BlockEvents.modification(event => {
+     *     event.modify('minecraft:cobblestone', block => {
+     *         block.randomTick(e => e.block.set('minecraft:mossy_cobblestone'))
+     *     })
+     * })
+     * }</pre>
+     *
+     * <p>Whether this reaches the block depends on the block: one whose class decides its own
+     * random ticking — every crop and sapling — never asks. See {@link BlockCallbacks}.
+     *
+     * @param callback what to run
+     */
+    public void randomTick(java.util.function.Consumer<BlockCallbackEventJS> callback) {
+        callbacks().setRandomTick(callback);
+    }
+
+    /**
+     * Runs a callback every tick an entity is standing on the block.
+     *
+     * @param callback what to run, with {@code event.entity}
+     */
+    public void steppedOn(java.util.function.Consumer<BlockCallbackEventJS> callback) {
+        callbacks().setSteppedOn(callback);
+    }
+
+    /**
+     * Runs a callback when an entity lands on the block.
+     *
+     * @param callback what to run, with {@code event.entity} and {@code event.fallDistance}
+     */
+    public void fallenOn(java.util.function.Consumer<BlockCallbackEventJS> callback) {
+        callbacks().setFallenOn(callback);
+    }
+
+    /**
+     * Decides whether the block can be built over.
+     *
+     * @param callback returns {@code true} or {@code false}, or nothing to leave the block's own
+     *     answer
+     */
+    public void canBeReplaced(
+        java.util.function.Function<BlockCallbackEventJS, Object> callback) {
+        callbacks().setCanBeReplaced(callback);
+    }
+
     /**
      * Sets how long the block takes to break.
      *

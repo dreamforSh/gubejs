@@ -22,4 +22,17 @@ public interface BlockBehaviourAccessor {
     @Mutable
     @Accessor("explosionResistance")
     void gubejs$setExplosionResistance(float value);
+
+    /**
+     * Sets whether the block gets random ticks.
+     *
+     * <p>Read through the block state, but stored here — which is why a block given a
+     * {@code randomTick} callback after it was registered can be turned on at all. The properties
+     * object that would normally decide this is gone by then.
+     *
+     * @param value {@code true} to tick the block
+     */
+    @Mutable
+    @Accessor("isRandomlyTicking")
+    void gubejs$setRandomlyTicking(boolean value);
 }

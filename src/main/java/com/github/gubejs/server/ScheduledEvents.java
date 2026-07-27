@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.PriorityQueue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import org.jetbrains.annotations.Nullable;
@@ -43,6 +44,17 @@ public final class ScheduledEvents {
         @Nullable
         final ServerLevel level;
 
+        /**
+         * Which script type scheduled this, or {@code null} if a Java plugin did.
+         *
+         * <p>What decides whether a reload drops it. A callback belongs to the context that was
+         * running when it was scheduled, and only that context's reload can take it away — a
+         * startup script's timer outlives every server reload, because the startup context is
+         * never closed and the script that would re-create the timer never runs again.
+         */
+        @Nullable
+        final ScriptType owner;
+
         /** The tick this comes due on, filled in when it enters the queue. */
         long dueAt;
 
@@ -51,14 +63,27 @@ public final class ScheduledEvents {
 
         Entry(long delay, IEventHandler callback, @Nullable Object data,
               @Nullable ServerLevel level) {
+            this(delay, callback, data, level, ScriptType.getCurrent());
+        }
+
+        private Entry(long delay, IEventHandler callback, @Nullable Object data,
+                      @Nullable ServerLevel level, @Nullable ScriptType owner) {
             this.delay = Math.max(1L, delay);
             this.callback = callback;
             this.data = data;
             this.level = level;
+            this.owner = owner;
         }
 
         Entry withDelay(long newDelay) {
-            return new Entry(newDelay, callback, data, level);
+            // The owner is carried over rather than read again: a callback that reschedules itself
+            // belongs to whoever scheduled the first one, whatever is on the stack now.
+            return new Entry(newDelay, callback, data, level, owner);
+        }
+
+        /** Whether a server script reload is what this callback would be lost to. */
+        boolean belongsToServerScripts() {
+            return owner == ScriptType.SERVER;
         }
 
         @Override
@@ -78,6 +103,15 @@ public final class ScheduledEvents {
      * here first.
      */
     private static final ConcurrentLinkedQueue<Entry> PENDING = new ConcurrentLinkedQueue<>();
+
+    /**
+     * Set when a reload has replaced the callbacks, so the queue is dropped on the next tick.
+     *
+     * <p>Not cleared on the spot, because the queue belongs to the server thread and a reload runs
+     * on a worker. Everything already in it is dead either way: a reload closes the script context,
+     * so a callback held from before it can no longer be called at all.
+     */
+    private static final AtomicBoolean CLEAR_REQUESTED = new AtomicBoolean();
 
     private static long currentTick;
 
@@ -112,7 +146,28 @@ public final class ScheduledEvents {
     public static void clear() {
         QUEUE.clear();
         PENDING.clear();
+        CLEAR_REQUESTED.set(false);
         currentTick = 0L;
+    }
+
+    /**
+     * Forgets the timers a previous server script load scheduled.
+     *
+     * <p>Called as server scripts reload, and it has to be: such a timer holds a JavaScript
+     * function from the context the reload is about to close, and calling one after that throws.
+     * Dropping them is also what a pack author means by reloading — the scripts are about to run
+     * again and schedule whatever they schedule.
+     *
+     * <p>Only those, though. A timer a startup script scheduled belongs to a context nothing ever
+     * closes, and no reload re-runs the script that would put it back — so clearing one would lose
+     * it for the rest of the session, for no reason.
+     *
+     * <p>Safe from a reload worker. What is pending is dropped now, since that queue is concurrent;
+     * what is already timed is dropped by the server thread on its next tick.
+     */
+    public static void clearForReload() {
+        PENDING.removeIf(Entry::belongsToServerScripts);
+        CLEAR_REQUESTED.set(true);
     }
 
     /**
@@ -122,6 +177,12 @@ public final class ScheduledEvents {
      */
     public static void tick(MinecraftServer server) {
         currentTick++;
+
+        // Before the pending queue is drained, so that a timer scheduled by the load that asked
+        // for the clear survives it -- which is the whole of what a reload is supposed to leave.
+        if (CLEAR_REQUESTED.compareAndSet(true, false)) {
+            QUEUE.removeIf(Entry::belongsToServerScripts);
+        }
 
         for (var entry = PENDING.poll(); entry != null; entry = PENDING.poll()) {
             entry.dueAt = currentTick + entry.delay;

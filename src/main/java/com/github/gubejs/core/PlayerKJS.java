@@ -1,10 +1,16 @@
 package com.github.gubejs.core;
 
 import com.github.gubejs.bindings.TextWrapper;
+import com.github.gubejs.block.BlockContainerJS;
+import com.github.gubejs.gui.ChestGuiJS;
+import com.github.gubejs.gui.GubejsChestMenu;
 import com.github.gubejs.item.ItemStackJS;
 import com.github.gubejs.net.GubejsNetwork;
+import com.github.gubejs.player.PlayerStatsJS;
+import net.minecraft.advancements.Advancement;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
@@ -184,6 +190,110 @@ public interface PlayerKJS extends EntityKJS {
         return new StageManager(gjs$player());
     }
 
+    // --- statistics ----------------------------------------------------------------------------
+
+    /**
+     * Returns the player's statistics.
+     *
+     * <pre>{@code
+     * if (player.statistics.get('minecraft:deaths') === 0) {
+     *     player.stages.add('untouched')
+     * }
+     * }</pre>
+     *
+     * <p>Not {@code getStats()}: {@link ServerPlayer} already has one of those, returning the
+     * counters themselves, and a method on this interface with the same name and a different return
+     * type would simply lose to it — silently, at whatever point a script first called it.
+     *
+     * @return the statistics, or {@code null} on the client, where a player has none of their own
+     */
+    @Nullable
+    default PlayerStatsJS getStatistics() {
+        return gjs$player() instanceof ServerPlayer serverPlayer
+            ? new PlayerStatsJS(serverPlayer) : null;
+    }
+
+    // --- advancements --------------------------------------------------------------------------
+
+    /**
+     * Reports whether the player has finished an advancement.
+     *
+     * @param id the advancement id, e.g. {@code minecraft:story/mine_diamond}
+     * @return {@code true} if it is done
+     */
+    default boolean hasAdvancement(ResourceLocation id) {
+        var advancement = gjs$findAdvancement(id);
+
+        return advancement != null && gjs$player() instanceof ServerPlayer serverPlayer
+            && serverPlayer.getAdvancements().getOrStartProgress(advancement).isDone();
+    }
+
+    /**
+     * Gives the player an advancement, along with everything it rewards.
+     *
+     * <p>Every criterion at once, which is what makes this "award the advancement" rather than
+     * "make progress towards it" — an advancement with three criteria is not done until all three
+     * are, and a script granting one by name means the whole of it.
+     *
+     * <p>Does nothing for a fake player. That is Forge's rule, not this mod's: its patch to
+     * {@code PlayerAdvancements.award} refuses one outright, on the grounds that a machine acting
+     * on someone's behalf should not be collecting advancements.
+     *
+     * @param id the advancement id
+     * @return {@code true} if anything changed
+     */
+    default boolean awardAdvancement(ResourceLocation id) {
+        var advancement = gjs$findAdvancement(id);
+
+        if (advancement == null || !(gjs$player() instanceof ServerPlayer serverPlayer)) {
+            return false;
+        }
+
+        var progress = serverPlayer.getAdvancements().getOrStartProgress(advancement);
+        var changed = false;
+
+        for (var criterion : progress.getRemainingCriteria()) {
+            changed |= serverPlayer.getAdvancements().award(advancement, criterion);
+        }
+
+        return changed;
+    }
+
+    /**
+     * Takes an advancement back off the player.
+     *
+     * @param id the advancement id
+     * @return {@code true} if anything changed
+     */
+    default boolean revokeAdvancement(ResourceLocation id) {
+        var advancement = gjs$findAdvancement(id);
+
+        if (advancement == null || !(gjs$player() instanceof ServerPlayer serverPlayer)) {
+            return false;
+        }
+
+        var progress = serverPlayer.getAdvancements().getOrStartProgress(advancement);
+        var changed = false;
+
+        for (var criterion : progress.getCompletedCriteria()) {
+            changed |= serverPlayer.getAdvancements().revoke(advancement, criterion);
+        }
+
+        return changed;
+    }
+
+    /**
+     * Looks an advancement up by id.
+     *
+     * <p>Advancements are datapack data, so this is a lookup on the server rather than a registry
+     * constant, and it answers {@code null} for an id no datapack defines.
+     */
+    @Nullable
+    private Advancement gjs$findAdvancement(ResourceLocation id) {
+        var server = gjs$player().getServer();
+        return server == null ? null : server.getAdvancements().getAdvancement(id);
+    }
+
     // --- persistent data -----------------------------------------------------------------------
 
     /**
@@ -270,6 +380,99 @@ public interface PlayerKJS extends EntityKJS {
     }
 
     // --- screens -------------------------------------------------------------------------------
+
+    /**
+     * Opens a screen this script builds.
+     *
+     * <pre>{@code
+     * player.openChestGUI('Choose a path', 3, gui => {
+     *     gui.fill('minecraft:gray_stained_glass_pane')
+     *     gui.button(11, Item.of('minecraft:iron_pickaxe').withName('The miner'), click => {
+     *         click.player.stages.add('miner')
+     *         click.close()
+     *     })
+     * })
+     * }</pre>
+     *
+     * <p>It is drawn as a chest, which is what makes it work with no mod on the client at all.
+     * Slots are locked unless the screen says {@code gui.unlocked()}, so an item in one is a button
+     * rather than something a player can take.
+     *
+     * @param title what to call it — a string or a component
+     * @param rows how tall, one to six
+     * @param action fills the screen in
+     */
+    default void openChestGUI(@Nullable Object title, int rows,
+                              java.util.function.Consumer<ChestGuiJS> action) {
+        if (!(gjs$player() instanceof ServerPlayer serverPlayer)) {
+            return;
+        }
+
+        var gui = new ChestGuiJS(GubejsChestMenu.titleOf(title), rows);
+        action.accept(gui);
+        serverPlayer.openMenu(GubejsChestMenu.providerFor(gui));
+    }
+
+    /**
+     * Opens an inventory that already exists — a chest, or a block a script created.
+     *
+     * <pre>{@code
+     * BlockEvents.rightClicked('mypack:smelter', event => {
+     *     event.player.openBlockInventory(event.block, 'Smelter')
+     *     event.cancel()
+     * })
+     * }</pre>
+     *
+     * <p>The slots are the block's own, so what a player takes out is taken out of the block and a
+     * hopper emptying it while the screen is open is seen. This is the answer to a block entity
+     * having an inventory nothing could open by hand.
+     *
+     * <p>Anything with a Forge item handler works, whether this mod created it or another mod did.
+     * An inventory with more than fifty-four slots is shown as far as its first fifty-four, which
+     * is as many as a chest screen has.
+     *
+     * @param block the block whose inventory to open
+     * @param title what to call it, or {@code null} for "Chest"
+     * @return {@code true} if the block had an inventory to open
+     */
+    default boolean openBlockInventory(BlockContainerJS block, @Nullable Object title) {
+        if (!(gjs$player() instanceof ServerPlayer serverPlayer)) {
+            return false;
+        }
+
+        var blockEntity = block.getEntity();
+
+        if (blockEntity == null) {
+            return false;
+        }
+
+        var handler = blockEntity.getCapability(
+            net.minecraftforge.common.capabilities.ForgeCapabilities.ITEM_HANDLER).resolve();
+
+        if (handler.isEmpty()
+            || !(handler.get() instanceof net.minecraftforge.items.IItemHandlerModifiable items)
+            || items.getSlots() == 0) {
+            return false;
+        }
+
+        var rows = Math.min(6, (items.getSlots() + ChestGuiJS.COLUMNS - 1) / ChestGuiJS.COLUMNS);
+        var container = new com.github.gubejs.gui.ItemHandlerContainer(items,
+            rows * ChestGuiJS.COLUMNS);
+
+        serverPlayer.openMenu(GubejsChestMenu.providerFor(
+            ChestGuiJS.over(GubejsChestMenu.titleOf(title), container)));
+        return true;
+    }
+
+    /**
+     * Opens a block's inventory under its own name.
+     *
+     * @param block the block whose inventory to open
+     * @return {@code true} if the block had one
+     */
+    default boolean openBlockInventory(BlockContainerJS block) {
+        return openBlockInventory(block, null);
+    }
 
     /**
      * Closes whatever screen the player has open.

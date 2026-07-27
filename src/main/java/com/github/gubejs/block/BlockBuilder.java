@@ -69,8 +69,8 @@ public class BlockBuilder extends BuilderBase<Block> {
      * @param hardness the hardness, or -1 for unbreakable
      * @return this builder
      */
-    public BlockBuilder hardness(float hardness) {
-        this.hardness = hardness;
+    public BlockBuilder hardness(double hardness) {
+        this.hardness = (float) hardness;
         return this;
     }
 
@@ -80,8 +80,8 @@ public class BlockBuilder extends BuilderBase<Block> {
      * @param resistance the blast resistance
      * @return this builder
      */
-    public BlockBuilder resistance(float resistance) {
-        this.resistance = resistance;
+    public BlockBuilder resistance(double resistance) {
+        this.resistance = (float) resistance;
         return this;
     }
 
@@ -147,6 +147,80 @@ public class BlockBuilder extends BuilderBase<Block> {
      */
     public BlockBuilder noItem() {
         this.createItem = false;
+        return this;
+    }
+
+    // --- behaviour -----------------------------------------------------------------------------
+
+    /** What the block should do beyond what its properties say, or {@code null} for nothing. */
+    @Nullable
+    protected BlockCallbacks callbacks;
+
+    /**
+     * Returns the callbacks, creating a set on first use.
+     *
+     * @return the callbacks
+     */
+    protected BlockCallbacks callbacks() {
+        if (callbacks == null) {
+            callbacks = new BlockCallbacks();
+        }
+
+        return callbacks;
+    }
+
+    /**
+     * Runs a callback on every random tick, and turns random ticking on.
+     *
+     * <pre>{@code
+     * event.create('creeping_moss').randomTick(event => {
+     *     const target = event.block.offset(Math.floor(Math.random() * 3) - 1, 0, 0)
+     *     if (target.id === 'minecraft:stone') {
+     *         target.set('mypack:creeping_moss')
+     *     }
+     * })
+     * }</pre>
+     *
+     * @param callback what to run
+     * @return this builder
+     */
+    public BlockBuilder randomTick(java.util.function.Consumer<BlockCallbackEventJS> callback) {
+        callbacks().setRandomTick(callback);
+        return this;
+    }
+
+    /**
+     * Runs a callback every tick an entity is standing on the block.
+     *
+     * @param callback what to run, with {@code event.entity}
+     * @return this builder
+     */
+    public BlockBuilder steppedOn(java.util.function.Consumer<BlockCallbackEventJS> callback) {
+        callbacks().setSteppedOn(callback);
+        return this;
+    }
+
+    /**
+     * Runs a callback when an entity lands on the block.
+     *
+     * @param callback what to run, with {@code event.entity} and {@code event.fallDistance}
+     * @return this builder
+     */
+    public BlockBuilder fallenOn(java.util.function.Consumer<BlockCallbackEventJS> callback) {
+        callbacks().setFallenOn(callback);
+        return this;
+    }
+
+    /**
+     * Decides whether the block can be built over, the way tall grass can.
+     *
+     * @param callback returns {@code true} or {@code false}, or nothing to leave the block's own
+     *     answer
+     * @return this builder
+     */
+    public BlockBuilder canBeReplaced(
+        java.util.function.Function<BlockCallbackEventJS, Object> callback) {
+        callbacks().setCanBeReplaced(callback);
         return this;
     }
 
@@ -224,6 +298,25 @@ public class BlockBuilder extends BuilderBase<Block> {
     }
 
     /**
+     * Returns the block, attaching the script's callbacks the first time it is asked for.
+     *
+     * <p>Here rather than in {@link #createObject()} because the shaped types override that and
+     * build a block of their own; every one of them still comes back through this.
+     */
+    @Override
+    public Block get() {
+        var created = super.get();
+
+        if (callbacks != null && !callbacks.isEmpty()
+            && created instanceof com.github.gubejs.core.BlockKJS holder
+            && holder.gjs$getCallbacks() == null) {
+            holder.gjs$setCallbacks(callbacks);
+        }
+
+        return created;
+    }
+
+    /**
      * Builds the block item that goes with this block.
      *
      * @return the item, or {@code null} if the script asked for none
@@ -253,6 +346,13 @@ public class BlockBuilder extends BuilderBase<Block> {
 
         if (lightLevel > 0) {
             properties.lightLevel(state -> lightLevel);
+        }
+
+        // The flag rather than the callback is what the game reads to decide whether to tick the
+        // block at all, and it is baked into each state as the state definition is built -- so it
+        // has to be set here, not when the callback runs.
+        if (callbacks != null && callbacks.wantsRandomTicks()) {
+            properties.randomTicks();
         }
 
         return properties;

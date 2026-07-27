@@ -110,10 +110,38 @@ public class ItemBuilder extends BuilderBase<Item> {
      * @param saturation the saturation modifier
      * @return this builder
      */
-    public ItemBuilder food(int nutrition, float saturation) {
-        this.food = new FoodProperties.Builder().nutrition(nutrition).saturationMod(saturation).build();
+    public ItemBuilder food(int nutrition, double saturation) {
+        this.food = new FoodProperties.Builder()
+            .nutrition(nutrition).saturationMod((float) saturation).build();
         return this;
     }
+
+    /**
+     * Makes the item edible, describing what eating it does.
+     *
+     * <pre>{@code
+     * event.create('nether_apple').food(food => {
+     *     food.hunger(6).saturation(1.2).alwaysEdible()
+     *     food.effect('minecraft:fire_resistance', 600, 0, 1)
+     * })
+     * }</pre>
+     *
+     * <p>Built at the end of the callback rather than kept, so the effect ids are resolved once
+     * every registry is filled — which is what lets a food name an effect the same pack creates.
+     *
+     * @param action describes the food
+     * @return this builder
+     */
+    public ItemBuilder food(java.util.function.Consumer<FoodBuilder> action) {
+        var builder = new FoodBuilder();
+        action.accept(builder);
+        this.foodBuilder = builder;
+        return this;
+    }
+
+    /** What a script described in {@link #food(java.util.function.Consumer)}, until it is built. */
+    @Nullable
+    protected FoodBuilder foodBuilder;
 
     /**
      * Points the generated model at a texture other than the one named after the item.
@@ -158,7 +186,9 @@ public class ItemBuilder extends BuilderBase<Item> {
             properties.fireResistant();
         }
 
-        if (food != null) {
+        if (foodBuilder != null) {
+            properties.food(foodBuilder.build());
+        } else if (food != null) {
             properties.food(food);
         }
 

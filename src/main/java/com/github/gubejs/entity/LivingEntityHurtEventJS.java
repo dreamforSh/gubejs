@@ -53,7 +53,7 @@ public final class LivingEntityHurtEventJS extends EntityEventJS {
      *
      * @param damage the new amount
      */
-    public void setDamage(float damage) {
-        this.damage = damage;
+    public void setDamage(double damage) {
+        this.damage = (float) damage;
     }
 }

@@ -11,6 +11,20 @@ import org.jetbrains.annotations.Nullable;
 public abstract class EventJS {
 
     /**
+     * Returns what a listener is handed as its {@code event} argument.
+     *
+     * <p>This, for everything that describes an event of this mod's own. The one case that differs
+     * is {@link ForgeEventJS}, which stands in for an event the game already had a class for: a
+     * script listening to a Forge event wants that event, with the methods Forge documents, not a
+     * wrapper around it that would have to re-expose every one of them.
+     *
+     * @return the object script listeners see
+     */
+    public Object gjs$scriptValue() {
+        return this;
+    }
+
+    /**
      * The value {@link #cancel()} and friends carry out when the script names none.
      *
      * @return the default, or {@code null}

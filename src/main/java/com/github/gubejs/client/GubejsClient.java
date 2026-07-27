@@ -38,6 +38,18 @@ public final class GubejsClient {
      *
      * @param modBus the mod event bus, for the reload listener registration
      */
+    /**
+     * Reloads the resource packs, and with them the client scripts.
+     *
+     * <p>Queued onto the render thread rather than run where it is called: {@code /gubejs reload
+     * client_scripts} is a command, and a command runs on the server thread even in a single
+     * player game.
+     */
+    public static void reloadResources() {
+        var minecraft = net.minecraft.client.Minecraft.getInstance();
+        minecraft.execute(minecraft::reloadResourcePacks);
+    }
+
     public static void init(IEventBus modBus) {
         modBus.addListener(GubejsClient::registerReloadListener);
         modBus.addListener(GubejsClient::clientSetup);

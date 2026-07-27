@@ -139,10 +139,10 @@ public final class ColorWrapper {
      * @param brightness 0-1
      * @return the colour as ARGB
      */
-    public static int hsb(float hue, float saturation, float brightness) {
+    public static int hsb(double hue, double saturation, double brightness) {
         // Written out rather than taken from java.awt.Color, which a dedicated server has no
         // business loading -- the class initialises the AWT toolkit on some platforms.
-        var h = (hue - (float) Math.floor(hue)) * 6F;
+        var h = (float) ((hue - Math.floor(hue)) * 6D);
         var s = Math.max(0F, Math.min(1F, saturation));
         var v = Math.max(0F, Math.min(1F, brightness));
 
@@ -162,7 +162,7 @@ public final class ColorWrapper {
         };
     }
 
-    private static int scale(float part) {
+    private static int scale(double part) {
         return (int) (part * 255F + 0.5F);
     }
 
@@ -226,7 +226,7 @@ public final class ColorWrapper {
      * @param amount how far between them, 0-1
      * @return the mixed colour
      */
-    public static int lerp(int from, int to, float amount) {
+    public static int lerp(int from, int to, double amount) {
         var t = Math.max(0F, Math.min(1F, amount));
         return rgba(
             (int) (getRed(from) + (getRed(to) - getRed(from)) * t),

@@ -55,10 +55,10 @@ public final class ScriptArmorMaterial implements ArmorMaterial {
     public Object repairIngredient;
 
     /** Damage ignored beyond the armour points. Diamond is 2, netherite 3, everything else 0. */
-    public float toughness;
+    public double toughness;
 
     /** How much knockback is resisted, from {@code 0} to {@code 1}. Netherite is 0.1. */
-    public float knockbackResistance;
+    public double knockbackResistance;
 
     public ScriptArmorMaterial(String name, ArmorMaterial parent) {
         this.name = name;
@@ -122,12 +122,12 @@ public final class ScriptArmorMaterial implements ArmorMaterial {
 
     @Override
     public float getToughness() {
-        return toughness;
+        return (float) toughness;
     }
 
     @Override
     public float getKnockbackResistance() {
-        return knockbackResistance;
+        return (float) knockbackResistance;
     }
 
     /**

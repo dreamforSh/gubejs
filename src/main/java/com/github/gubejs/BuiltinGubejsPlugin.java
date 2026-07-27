@@ -102,6 +102,8 @@ public final class BuiltinGubejsPlugin extends GubejsPlugin {
         NetworkEvents.GROUP.register();
         com.github.gubejs.bindings.event.WorldgenEvents.GROUP.register();
         com.github.gubejs.bindings.event.GameStageEvents.GROUP.register();
+        com.github.gubejs.bindings.event.ForgeEvents.GROUP.register();
+        com.github.gubejs.bindings.event.ForgeModEvents.GROUP.register();
     }
 
     @Override

@@ -1,6 +1,7 @@
 package com.github.gubejs.item;
 
 import com.github.gubejs.util.ValueUtils;
+import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Rarity;
 import org.jetbrains.annotations.Nullable;
@@ -28,6 +29,13 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class ItemModifications {
 
+    /** The item being changed, so a change can start from what the item already answered. */
+    private final Item item;
+
+    public ItemModifications(Item item) {
+        this.item = item;
+    }
+
     /** How many fit in one slot, or {@code null} to leave it. */
     @Nullable
     public Integer maxStackSize;
@@ -51,6 +59,49 @@ public final class ItemModifications {
     /** How long it burns in a furnace, in ticks, or {@code null} to leave it. */
     @Nullable
     public Integer burnTime;
+
+    /** What eating it does now, or {@code null} to leave it. */
+    @Nullable
+    public FoodProperties food;
+
+    /** Whether the script made it inedible, which no {@link #food} value could say. */
+    public boolean foodRemoved;
+
+    /**
+     * Changes what eating the item does, or makes something edible that was not.
+     *
+     * <pre>{@code
+     * event.modify('minecraft:rotten_flesh', item => {
+     *     item.food(food => {
+     *         food.hunger(6)
+     *         food.removeEffect('minecraft:hunger')
+     *     })
+     * })
+     * }</pre>
+     *
+     * <p>The builder starts from the item's own food, so a change states the difference. An item
+     * that was not food at all starts from the defaults, which are an apple's.
+     *
+     * @param action describes the food
+     */
+    public void food(java.util.function.Consumer<FoodBuilder> action) {
+        var existing = item.getFoodProperties();
+        var builder = existing == null ? new FoodBuilder() : FoodBuilder.of(existing);
+        action.accept(builder);
+        food = builder.build();
+        foodRemoved = false;
+    }
+
+    /**
+     * Makes the item inedible.
+     *
+     * <p>What a pack reaches for to stop a food being a food, rather than setting its nutrition to
+     * zero — which leaves it edible and merely useless.
+     */
+    public void removeFood() {
+        food = null;
+        foodRemoved = true;
+    }
 
     /**
      * Sets how many fit in one slot.

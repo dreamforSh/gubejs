@@ -49,9 +49,10 @@ public class CompostableRecipesEventJS extends EventJS {
      * @param ingredient an item id, a {@code #tag}, or a list
      * @param chance how likely one is to raise the composter a level, {@code 0} to {@code 1}
      */
-    public void add(Object ingredient, float chance) {
+    public void add(Object ingredient, double chance) {
         for (var stack : IngredientJS.of(ingredient).getItems()) {
-            ComposterBlock.COMPOSTABLES.put(stack.getItem(), Mth.clamp(chance, 0F, 1F));
+            ComposterBlock.COMPOSTABLES.put(stack.getItem(),
+                (float) Mth.clamp(chance, 0D, 1D));
         }
     }
 
