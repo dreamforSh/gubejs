@@ -38,25 +38,29 @@ public final class Painter {
      *
      * @param value an object whose keys are names and whose values are descriptions
      */
-    public synchronized void paint(@Nullable Object value) {
+    public void paint(@Nullable Object value) {
         var tag = NbtHelper.compound(ValueUtils.unwrap(value));
 
         if (tag == null) {
             return;
         }
 
-        for (var name : tag.getAllKeys()) {
-            var description = tag.get(name);
+        synchronized (this) {
+            for (var name : tag.getAllKeys()) {
+                var description = tag.get(name);
 
-            // An empty compound is how a script says "remove this" without reaching for null,
-            // which is awkward to write inside an object literal.
-            if (description == null || !(description instanceof CompoundTag compound)
-                || compound.isEmpty()) {
-                objects.remove(name);
-            } else {
-                objects.put(name, new PaintObject(compound));
+                // An empty compound is how a script says "remove this" without reaching for null,
+                // which is awkward to write inside an object literal.
+                if (description == null || !(description instanceof CompoundTag compound)
+                    || compound.isEmpty()) {
+                    objects.remove(name);
+                } else {
+                    objects.put(name, new PaintObject(compound));
+                }
             }
         }
+
+        announce();
     }
 
     /**
@@ -64,13 +68,37 @@ public final class Painter {
      *
      * @param name what it was added under
      */
-    public synchronized void remove(String name) {
-        objects.remove(name);
+    public void remove(String name) {
+        synchronized (this) {
+            objects.remove(name);
+        }
+
+        announce();
     }
 
     /** Removes everything. */
-    public synchronized void clear() {
-        objects.clear();
+    public void clear() {
+        synchronized (this) {
+            objects.clear();
+        }
+
+        announce();
+    }
+
+    /**
+     * Tells the client scripts that what is on screen has changed.
+     *
+     * <p>Outside the lock, deliberately: a listener is free to call straight back into
+     * {@link #paint}, and holding the monitor across a call into script would be a deadlock
+     * waiting for the day someone does.
+     */
+    private void announce() {
+        var handler = com.github.gubejs.bindings.event.ClientEvents.PAINTER_UPDATED;
+
+        if (handler.hasListeners()) {
+            handler.post(com.github.gubejs.script.ScriptType.CLIENT,
+                new com.github.gubejs.client.ClientEventJS());
+        }
     }
 
     /**

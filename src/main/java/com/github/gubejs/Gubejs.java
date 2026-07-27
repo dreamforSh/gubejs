@@ -100,6 +100,10 @@ public final class Gubejs {
         startupScriptManager.reload(null);
         StartupEvents.INIT.post(ScriptType.STARTUP, new StartupEventJS());
 
+        // Before anything is created, since a tool created below may name a tier defined here.
+        buildTiers();
+        buildRecipeSchemas();
+
         // Everything a script asked to create, built now so that the registry events below only
         // have to hand over finished objects. Doing it here also means a failure names the script
         // that caused it while the startup console is still the current one.
@@ -118,6 +122,34 @@ public final class Gubejs {
         if (com.github.gubejs.bindings.PlatformWrapper.isClient()) {
             com.github.gubejs.client.GubejsClient.init(modBus);
         }
+    }
+
+    /**
+     * Runs the tier listeners, so a tool or a piece of armour can name what a pack invented.
+     *
+     * <p>Both are cleared first: startup scripts can be run again, and a tier defined twice would
+     * be handed to Forge's sorting registry twice.
+     */
+    private void buildTiers() {
+        com.github.gubejs.item.ItemToolTierRegistryEventJS.clear();
+        com.github.gubejs.item.ItemArmorTierRegistryEventJS.clear();
+
+        com.github.gubejs.bindings.event.ItemEvents.TOOL_TIER_REGISTRY.post(ScriptType.STARTUP,
+            new com.github.gubejs.item.ItemToolTierRegistryEventJS());
+        com.github.gubejs.bindings.event.ItemEvents.ARMOR_TIER_REGISTRY.post(ScriptType.STARTUP,
+            new com.github.gubejs.item.ItemArmorTierRegistryEventJS());
+    }
+
+    /**
+     * Runs the recipe schema listeners, so a script can say what a recipe type's arguments mean.
+     *
+     * <p>Here rather than at the first recipe reload, because a schema is startup state and a
+     * server script asking for one has no way to make a startup listener run.
+     */
+    private void buildRecipeSchemas() {
+        com.github.gubejs.recipe.RecipeSchema.clearScripted();
+        StartupEvents.RECIPE_SCHEMA_REGISTRY.post(ScriptType.STARTUP,
+            new com.github.gubejs.recipe.RecipeSchemaRegistryEventJS());
     }
 
     /**

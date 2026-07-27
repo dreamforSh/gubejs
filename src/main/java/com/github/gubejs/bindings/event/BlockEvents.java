@@ -84,4 +84,25 @@ public interface BlockEvents {
      */
     EventHandler FARMLAND_TRAMPLED = GROUP.common("farmlandTrampled",
         () -> FarmlandTrampledEventJS.class).extra(SUPPORTS_BLOCK).hasResult();
+
+    // --- detectors ---------------------------------------------------------------------------
+
+    /**
+     * The redstone signal reaching a detector block changing —
+     * {@code BlockEvents.detectorChanged('alarm', event => ...)}.
+     *
+     * <p>Takes the detector's name rather than a block id, since that is what a script named when
+     * it created the block. Fires alongside one of {@link #DETECTOR_POWERED} and
+     * {@link #DETECTOR_UNPOWERED}, never on its own.
+     */
+    EventHandler DETECTOR_CHANGED = GROUP.common("detectorChanged",
+        () -> com.github.gubejs.block.DetectorBlockEventJS.class).extra(Extra.STRING);
+
+    /** A detector block going from unpowered to powered. */
+    EventHandler DETECTOR_POWERED = GROUP.common("detectorPowered",
+        () -> com.github.gubejs.block.DetectorBlockEventJS.class).extra(Extra.STRING);
+
+    /** A detector block losing its signal. */
+    EventHandler DETECTOR_UNPOWERED = GROUP.common("detectorUnpowered",
+        () -> com.github.gubejs.block.DetectorBlockEventJS.class).extra(Extra.STRING);
 }

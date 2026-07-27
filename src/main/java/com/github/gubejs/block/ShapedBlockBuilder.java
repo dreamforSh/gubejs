@@ -37,7 +37,11 @@ public class ShapedBlockBuilder extends BlockBuilder {
         FENCE,
         FENCE_GATE,
         WALL,
-        PRESSURE_PLATE,
+        CARPET,
+        WOODEN_PRESSURE_PLATE,
+        STONE_PRESSURE_PLATE,
+        WOODEN_BUTTON,
+        STONE_BUTTON,
         DOOR,
         TRAPDOOR
     }
@@ -63,10 +67,22 @@ public class ShapedBlockBuilder extends BlockBuilder {
             case FENCE -> new FenceBlock(properties);
             case FENCE_GATE -> new FenceGateBlock(properties);
             case WALL -> new WallBlock(properties);
-            // The remaining three have protected constructors -- vanilla builds them from its own
+            case CARPET -> new net.minecraft.world.level.block.CarpetBlock(properties);
+            // A wooden plate answers to anything that stands on it, including a dropped item; a
+            // stone one only to something alive. That difference is the whole reason vanilla has
+            // two, and it is not something a texture can imply.
+            case WOODEN_PRESSURE_PLATE -> new PressurePlateBlock(
+                PressurePlateBlock.Sensitivity.EVERYTHING, properties);
+            case STONE_PRESSURE_PLATE -> new PressurePlateBlock(
+                PressurePlateBlock.Sensitivity.MOBS, properties);
+            // The two buttons differ in how long they stay pressed, which vanilla holds in the
+            // subclass rather than in a property.
+            case WOODEN_BUTTON ->
+                new net.minecraft.world.level.block.WoodButtonBlock(properties);
+            case STONE_BUTTON ->
+                new net.minecraft.world.level.block.StoneButtonBlock(properties);
+            // The remaining two have protected constructors -- vanilla builds them from its own
             // subclasses -- so an empty subclass is what reaches them.
-            case PRESSURE_PLATE -> new PressurePlateBlock(
-                PressurePlateBlock.Sensitivity.EVERYTHING, properties) { };
             case DOOR -> new DoorBlock(properties) { };
             case TRAPDOOR -> new TrapDoorBlock(properties) { };
         };
@@ -138,6 +154,29 @@ public class ShapedBlockBuilder extends BlockBuilder {
                 assets.put(itemModel(namespace, path),
                     parent(namespace + ":block/" + path + "_inventory"));
             }
+            case CARPET -> {
+                assets.put(blockstate(namespace, path), simpleBlockstate(namespace, path));
+                assets.put(model(namespace, path), carpetModel(face));
+                assets.put(itemModel(namespace, path), parent(namespace + ":block/" + path));
+            }
+            case WOODEN_PRESSURE_PLATE, STONE_PRESSURE_PLATE -> {
+                assets.put(blockstate(namespace, path), pressurePlateBlockstate(namespace, path));
+                assets.put(model(namespace, path),
+                    template("minecraft:block/pressure_plate_up", face));
+                assets.put(model(namespace, path + "_down"),
+                    template("minecraft:block/pressure_plate_down", face));
+                assets.put(itemModel(namespace, path), parent(namespace + ":block/" + path));
+            }
+            case WOODEN_BUTTON, STONE_BUTTON -> {
+                assets.put(blockstate(namespace, path), buttonBlockstate(namespace, path));
+                assets.put(model(namespace, path), template("minecraft:block/button", face));
+                assets.put(model(namespace, path + "_pressed"),
+                    template("minecraft:block/button_pressed", face));
+                assets.put(model(namespace, path + "_inventory"),
+                    template("minecraft:block/button_inventory", face));
+                assets.put(itemModel(namespace, path),
+                    parent(namespace + ":block/" + path + "_inventory"));
+            }
             default -> {
                 // Unreachable: the shapes without model generation are not registered as types.
             }
@@ -179,6 +218,17 @@ public class ShapedBlockBuilder extends BlockBuilder {
 
     private static String parent(String model) {
         return "{\n  \"parent\": \"%s\"\n}".formatted(model);
+    }
+
+    /** A carpet, whose template names its one texture {@code wool} rather than {@code texture}. */
+    private static String carpetModel(String face) {
+        return """
+            {
+              "parent": "minecraft:block/carpet",
+              "textures": {
+                "wool": "%s"
+              }
+            }""".formatted(face);
     }
 
     // --- blockstate bodies ---------------------------------------------------------------------
@@ -326,18 +376,94 @@ public class ShapedBlockBuilder extends BlockBuilder {
             }""".formatted(namespace, path);
     }
 
+    /** One model for every state, for a shape that has only one. */
+    private static String simpleBlockstate(String namespace, String path) {
+        return """
+            {
+              "variants": {
+                "": { "model": "%s:block/%s" }
+              }
+            }""".formatted(namespace, path);
+    }
+
+    private static String pressurePlateBlockstate(String namespace, String path) {
+        return """
+            {
+              "variants": {
+                "powered=false": { "model": "%1$s:block/%2$s" },
+                "powered=true": { "model": "%1$s:block/%2$s_down" }
+              }
+            }""".formatted(namespace, path);
+    }
+
+    private static String buttonBlockstate(String namespace, String path) {
+        var model = namespace + ":block/" + path;
+        var body = new StringBuilder("{\n  \"variants\": {\n");
+
+        for (var face : new String[] {"floor", "wall", "ceiling"}) {
+            for (var facing : new String[] {"north", "east", "south", "west"}) {
+                body.append("    \"face=").append(face)
+                    .append(",facing=").append(facing)
+                    .append(",powered=false\": ")
+                    .append(buttonVariant(model, face, facing)).append(",\n");
+                body.append("    \"face=").append(face)
+                    .append(",facing=").append(facing)
+                    .append(",powered=true\": ")
+                    .append(buttonVariant(model + "_pressed", face, facing)).append(",\n");
+            }
+        }
+
+        body.setLength(body.length() - 2);
+        return body.append("\n  }\n}").toString();
+    }
+
+    /**
+     * One button variant.
+     *
+     * <p>A button on a ceiling is the floor model turned upside down, and turning it that way
+     * reverses which direction {@code facing} points at — which is why the ceiling rotations are
+     * the floor ones plus half a turn rather than the same numbers.
+     */
+    private static String buttonVariant(String model, String face, String facing) {
+        var y = switch (facing) {
+            case "east" -> 90;
+            case "south" -> 180;
+            case "west" -> 270;
+            default -> 0;
+        };
+
+        var parts = new StringBuilder("{ \"model\": \"").append(model).append('"');
+
+        switch (face) {
+            case "wall" -> parts.append(", \"uvlock\": true, \"x\": 90");
+            case "ceiling" -> {
+                parts.append(", \"x\": 180");
+                y = (y + 180) % 360;
+            }
+            default -> {
+                // A button on the floor needs no tilt.
+            }
+        }
+
+        if (y != 0) {
+            parts.append(", \"y\": ").append(y);
+        }
+
+        return parts.append(" }").toString();
+    }
+
     /**
      * Registers the block shapes scripts can create.
      *
-     * <p>Only the ones whose models this can generate from a single texture. A pressure plate, a
-     * door and a trapdoor need artwork that cannot be derived — a door is two half-height
-     * textures, and nothing here can invent them — and registering a block whose model is missing
-     * produces a purple cube and a wall of errors in the log. Better not to offer the type than
-     * to offer one that cannot work.
+     * <p>Only the ones whose models this can generate from a single texture. A door and a trapdoor
+     * need artwork that cannot be derived — a door is two half-height textures, and nothing here
+     * can invent them — and registering a block whose model is missing produces a purple cube and
+     * a wall of errors in the log. Better not to offer the type than to offer one that cannot work.
      */
     public static void registerTypes() {
         for (var shape : new Shape[] {Shape.STAIRS, Shape.SLAB, Shape.FENCE, Shape.FENCE_GATE,
-            Shape.WALL}) {
+            Shape.WALL, Shape.CARPET, Shape.WOODEN_PRESSURE_PLATE, Shape.STONE_PRESSURE_PLATE,
+            Shape.WOODEN_BUTTON, Shape.STONE_BUTTON}) {
             var name = shape.name().toLowerCase(Locale.ROOT);
             RegistryInfo.BLOCK.addType(name, id -> new ShapedBlockBuilder(id, shape));
         }

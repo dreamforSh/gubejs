@@ -102,6 +102,19 @@ public interface PlayerEvents {
         .extra(SUPPORTS_MENU_TYPE);
 
     /**
+     * A player opening a chest.
+     *
+     * <p>{@link #INVENTORY_OPENED} narrowed to chest menus, and given the chest itself rather than
+     * only the screen showing it.
+     */
+    EventHandler CHEST_OPENED = GROUP.common("chestOpened",
+        () -> com.github.gubejs.player.ChestEventJS.class).extra(SUPPORTS_MENU_TYPE);
+
+    /** A player closing a chest. */
+    EventHandler CHEST_CLOSED = GROUP.common("chestClosed",
+        () -> com.github.gubejs.player.ChestEventJS.class).extra(SUPPORTS_MENU_TYPE);
+
+    /**
      * A slot in a player's own inventory changing — {@code PlayerEvents.inventoryChanged(
      * 'minecraft:diamond', event => ...)}.
      *

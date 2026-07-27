@@ -1,0 +1,82 @@
+package com.github.gubejs.block.entity;
+
+import com.github.gubejs.block.BlockContainerJS;
+import com.github.gubejs.event.EventJS;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.level.Level;
+import net.minecraftforge.items.ItemStackHandler;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * What a block entity's tick callback is handed.
+ *
+ * <pre>{@code
+ * be.serverTick(20, 0, event => {
+ *     event.data.putInt('age', event.data.getInt('age') + 1)
+ *     event.sync()
+ * })
+ * }</pre>
+ */
+public class BlockEntityTickEventJS extends EventJS {
+
+    private final GubejsBlockEntity entity;
+
+    BlockEntityTickEventJS(GubejsBlockEntity entity) {
+        this.entity = entity;
+    }
+
+    /**
+     * Returns the block entity itself.
+     *
+     * @return the block entity
+     */
+    public GubejsBlockEntity getEntity() {
+        return entity;
+    }
+
+    /**
+     * Returns the block, as a script sees any other block.
+     *
+     * @return the block
+     */
+    public BlockContainerJS getBlock() {
+        return entity.getBlock();
+    }
+
+    /**
+     * Returns the tag this block stores things in.
+     *
+     * <p>Changes are saved with the world. {@link #sync()} is what tells clients about them.
+     *
+     * @return the tag
+     */
+    public CompoundTag getData() {
+        return entity.data;
+    }
+
+    /**
+     * Returns the block's items.
+     *
+     * @return the handler, or {@code null} if the block has no inventory
+     */
+    @Nullable
+    public ItemStackHandler getInventory() {
+        return entity.getInventory();
+    }
+
+    /**
+     * Returns the level the block is in.
+     *
+     * @return the level
+     */
+    public Level getLevel() {
+        return entity.getLevel();
+    }
+
+    /**
+     * Marks the block as changed, and tells nearby clients if the block entity is synced.
+     */
+    public void sync() {
+        entity.sync();
+    }
+}

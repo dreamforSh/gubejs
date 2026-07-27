@@ -130,14 +130,22 @@ public class ToolItemBuilder extends ItemBuilder {
     /**
      * Looks up a tier by name.
      *
-     * <p>Forge's registry first, because that is where a mod's own tier is and it also holds the
-     * vanilla ones — so {@code 'netherite'} and {@code 'mymod:steel'} resolve the same way.
+     * <p>A tier the pack itself defined through {@code ItemEvents.toolTierRegistry} first, since
+     * that is the one a script naming it almost certainly meant. Then Forge's registry, which is
+     * where a mod's own tier is and which also holds the vanilla ones — so {@code 'netherite'} and
+     * {@code 'mymod:steel'} resolve the same way.
      *
      * @param name the tier name
      * @return the tier, or {@code null} if nothing is registered under that name
      */
     @Nullable
     private static Tier resolveTier(String name) {
+        var scripted = ItemToolTierRegistryEventJS.get(name);
+
+        if (scripted != null) {
+            return scripted;
+        }
+
         var id = ResourceLocation.tryParse(name.indexOf(':') == -1
             ? "minecraft:" + name.toLowerCase(Locale.ROOT) : name);
 

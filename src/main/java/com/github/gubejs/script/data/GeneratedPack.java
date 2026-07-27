@@ -82,11 +82,14 @@ public final class GeneratedPack {
     private static void writeGeneratedFiles() throws Exception {
         var files = new LinkedHashMap<String, String>();
         var translations = new LinkedHashMap<String, String>();
+        var sounds = new LinkedHashMap<String, com.google.gson.JsonObject>();
 
         for (var registry : RegistryInfo.getAll().values()) {
             for (var builder : registry.getBuilders()) {
                 files.putAll(builder.getGeneratedAssets());
                 translations.putAll(builder.getTranslations());
+                builder.getGeneratedSounds().forEach((id, entry) ->
+                    sounds.put(id.getNamespace() + "/" + id.getPath(), entry));
             }
         }
 
@@ -108,6 +111,24 @@ public final class GeneratedPack {
             byNamespace.forEach((namespace, lines) ->
                 files.put("assets/" + namespace + "/lang/en_us.json",
                     JsonUtils.toPrettyString(lines)));
+        }
+
+        if (!sounds.isEmpty()) {
+            // One sounds.json per namespace, holding every sound in it -- the same shape as the
+            // language files above, and for the same reason: the file is a map, not a list of
+            // files, so each builder can only contribute an entry to it.
+            var byNamespace = new LinkedHashMap<String, com.google.gson.JsonObject>();
+
+            sounds.forEach((path, entry) -> {
+                var slash = path.indexOf('/');
+                byNamespace
+                    .computeIfAbsent(path.substring(0, slash), n -> new com.google.gson.JsonObject())
+                    .add(path.substring(slash + 1), entry);
+            });
+
+            byNamespace.forEach((namespace, entries) ->
+                files.put("assets/" + namespace + "/sounds.json",
+                    JsonUtils.PRETTY.toJson(entries)));
         }
 
         deleteRecursively(GENERATED.resolve("assets"));

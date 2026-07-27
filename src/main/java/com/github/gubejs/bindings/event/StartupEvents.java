@@ -27,4 +27,15 @@ public interface StartupEvents {
      */
     EventHandler REGISTRY = GROUP.startup("registry", () -> RegistryEventJS.class)
         .extra(Extra.REQUIRES_REGISTRY);
+
+    /**
+     * Says what a recipe type's arguments mean —
+     * {@code StartupEvents.recipeSchemaRegistry(event => ...)}.
+     *
+     * <p>Rarely needed: a recipe type with even one recipe in a datapack has its shape worked out
+     * from that recipe. This is for the type whose recipes are all added in code, and for
+     * correcting a shape that was learned wrongly.
+     */
+    EventHandler RECIPE_SCHEMA_REGISTRY = GROUP.startup("recipeSchemaRegistry",
+        () -> com.github.gubejs.recipe.RecipeSchemaRegistryEventJS.class);
 }

@@ -327,7 +327,7 @@ public final class EventHandler implements ProxyExecutable {
      * @return what the listeners decided
      */
     public EventResult post(EventJS event) {
-        return post(requireSingleType(), null, event, null);
+        return post(typeOf(event), null, event, null);
     }
 
     /**
@@ -338,7 +338,7 @@ public final class EventHandler implements ProxyExecutable {
      * @return what the listeners decided
      */
     public EventResult post(EventJS event, @Nullable Object extraId) {
-        return post(requireSingleType(), extraId, event, null);
+        return post(typeOf(event), extraId, event, null);
     }
 
     /**
@@ -432,6 +432,18 @@ public final class EventHandler implements ProxyExecutable {
                 startup.handle(event, exceptionHandler);
             }
         }
+    }
+
+    /**
+     * Where an event happened, asked of the event itself before the handler.
+     *
+     * <p>A common event can be posted from either side, so the handler cannot say which one this
+     * is — but the event usually can, because it holds a level or a player and those know which
+     * side they are on. Asking it first is what lets {@code post(event, id)} work for a common
+     * event at all; without it, every caller would have to repeat the side it already handed over.
+     */
+    private ScriptTypeHolder typeOf(EventJS event) {
+        return event instanceof ScriptTypeHolder holder ? holder : requireSingleType();
     }
 
     private ScriptTypeHolder requireSingleType() {

@@ -1,5 +1,7 @@
 package com.github.gubejs.core;
 
+import com.github.gubejs.bindings.event.GameStageEvents;
+import com.github.gubejs.event.EventHandler;
 import com.github.gubejs.net.GubejsNetwork;
 import java.util.ArrayList;
 import java.util.List;
@@ -67,6 +69,7 @@ public final class StageManager {
         var list = read();
         list.add(StringTag.valueOf(stage));
         write(list);
+        announce(GameStageEvents.ADDED, stage);
         return true;
     }
 
@@ -83,6 +86,7 @@ public final class StageManager {
             if (list.getString(i).equals(stage)) {
                 list.remove(i);
                 write(list);
+                announce(GameStageEvents.REMOVED, stage);
                 return true;
             }
         }
@@ -96,9 +100,12 @@ public final class StageManager {
      * @return how many were removed
      */
     public int clear() {
-        var count = read().size();
+        // Read before the write, since the listeners below are told one stage at a time and the
+        // list they are named from is gone by then.
+        var removed = getAll();
         write(new ListTag());
-        return count;
+        removed.forEach(stage -> announce(GameStageEvents.REMOVED, stage));
+        return removed.size();
     }
 
     /**
@@ -147,7 +154,11 @@ public final class StageManager {
 
         // A stage the client does not know about would leave a client script -- a tooltip, a HUD
         // element -- looking at the wrong answer, so the player is told about its own stages.
-        if (player instanceof ServerPlayer serverPlayer) {
+        //
+        // Unless there is nobody to tell: a fake player is a ServerPlayer with no connection, and
+        // mods use them for anything that acts on a player's behalf without one being there. A
+        // machine giving out a stage should work, not throw from inside the packet distributor.
+        if (player instanceof ServerPlayer serverPlayer && serverPlayer.connection != null) {
             sync(serverPlayer);
         }
     }
@@ -161,9 +172,43 @@ public final class StageManager {
      * @param player the player to tell
      */
     public static void sync(ServerPlayer player) {
+        if (player.connection == null) {
+            return;
+        }
+
         var data = new CompoundTag();
         data.put("stages", new StageManager(player).read());
         GubejsNetwork.sendToPlayer(player, GubejsNetwork.STAGES_CHANNEL, data);
+    }
+
+    /**
+     * Tells the scripts that a stage changed.
+     *
+     * <p>After the write, so a listener asking {@code player.stages.has(...)} gets the new answer
+     * rather than the one that is about to stop being true.
+     *
+     * @param handler which of the two events this is
+     * @param stage the stage that changed
+     */
+    private void announce(EventHandler handler, String stage) {
+        announce(player, handler, stage);
+    }
+
+    /**
+     * Tells the scripts that one player's stage changed.
+     *
+     * <p>Public because the client reaches it too. A stage is only ever set on the server, and the
+     * client's copy arrives as a whole list rather than as a change — so the client works out what
+     * changed and calls this, which is what makes a listener in a client script fire at all.
+     *
+     * @param player whose stage changed
+     * @param handler which of the two events this is
+     * @param stage the stage that changed
+     */
+    public static void announce(Player player, EventHandler handler, String stage) {
+        if (handler.hasListeners()) {
+            handler.post(new StageEventJS(player, stage), stage);
+        }
     }
 
     /** The part of the player's persistent data that survives death. */

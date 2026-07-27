@@ -67,6 +67,33 @@ public interface ItemEvents {
      * <p>Fires once while the game loads, after every mod has registered its items. A startup
      * event, since the change is permanent and a reload cannot undo it.
      */
+    /**
+     * Where a pack invents a tool tier — {@code ItemEvents.toolTierRegistry(event => ...)}.
+     *
+     * <p>Fires before the first item is built, so a tier defined here can be named by
+     * {@code .tier('steel')} on any tool the same run creates.
+     */
+    EventHandler TOOL_TIER_REGISTRY = GROUP.startup("toolTierRegistry",
+        () -> com.github.gubejs.item.ItemToolTierRegistryEventJS.class);
+
+    /**
+     * Where a pack invents an armour material — {@code ItemEvents.armorTierRegistry(event => ...)}.
+     *
+     * <p>Fires alongside {@link #TOOL_TIER_REGISTRY}, and for the same reason.
+     */
+    EventHandler ARMOR_TIER_REGISTRY = GROUP.startup("armorTierRegistry",
+        () -> com.github.gubejs.item.ItemArmorTierRegistryEventJS.class);
+
+    /**
+     * Where a pack teaches an item model to change shape —
+     * {@code ItemEvents.modelProperties(event => ...)}.
+     *
+     * <p>A startup event, but one only a client ever fires: what it registers is read by the item
+     * renderer, and a dedicated server has none.
+     */
+    EventHandler MODEL_PROPERTIES = GROUP.startup("modelProperties",
+        () -> com.github.gubejs.client.ItemModelPropertiesEventJS.class);
+
     EventHandler MODIFICATION = GROUP.startup("modification",
         () -> com.github.gubejs.item.ItemModificationEventJS.class);
 

@@ -1,16 +1,21 @@
 package com.github.gubejs.mixin;
 
 import com.github.gubejs.bindings.event.ServerEvents;
+import com.github.gubejs.recipe.AfterRecipesLoadedEventJS;
 import com.github.gubejs.recipe.RecipesEventJS;
 import com.github.gubejs.script.ScriptType;
 import com.github.gubejs.server.ServerScriptManager;
 import com.google.gson.JsonElement;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.util.profiling.ProfilerFiller;
+import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeManager;
+import net.minecraft.world.item.crafting.RecipeType;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -28,6 +33,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(value = RecipeManager.class, priority = 1100)
 public abstract class RecipeManagerMixin {
 
+    @Shadow
+    private Map<RecipeType<?>, Map<ResourceLocation, Recipe<?>>> recipes;
+
+    @Shadow
+    private Map<ResourceLocation, Recipe<?>> byName;
+
     @Inject(method = "apply*", at = @At("HEAD"))
     private void gubejs$editRecipes(Map<ResourceLocation, JsonElement> map,
                                     ResourceManager resourceManager,
@@ -39,5 +50,39 @@ public abstract class RecipeManagerMixin {
         if (ServerEvents.RECIPES.hasListeners()) {
             ServerEvents.RECIPES.post(ScriptType.SERVER, null, new RecipesEventJS(map));
         }
+    }
+
+    /**
+     * Hands the recipes that loaded to {@code ServerEvents.afterRecipes}.
+     *
+     * <p>Vanilla builds both maps with {@code ImmutableMap}, so a listener that wanted to remove
+     * something would have nothing it could remove from. They are replaced with mutable copies
+     * first — and left that way, since everything vanilla does with them afterwards is a read.
+     */
+    @Inject(method = "apply*", at = @At("RETURN"))
+    private void gubejs$afterRecipes(Map<ResourceLocation, JsonElement> map,
+                                     ResourceManager resourceManager,
+                                     ProfilerFiller profiler, CallbackInfo ci) {
+        // Composting is not a recipe and does not arrive with one, but this is the moment a pack
+        // means by "on reload" -- and it is where KubeJS fires it, so a pack written for that
+        // sees the same ordering.
+        if (ServerEvents.COMPOSTABLE_RECIPES.hasListeners()) {
+            ServerEvents.COMPOSTABLE_RECIPES.post(ScriptType.SERVER,
+                new com.github.gubejs.recipe.CompostableRecipesEventJS());
+        }
+
+        if (!ServerEvents.RECIPES_AFTER_LOADED.hasListeners()) {
+            return;
+        }
+
+        var mutableByType =
+            new LinkedHashMap<RecipeType<?>, Map<ResourceLocation, Recipe<?>>>();
+        recipes.forEach((type, byId) -> mutableByType.put(type, new LinkedHashMap<>(byId)));
+
+        recipes = mutableByType;
+        byName = new LinkedHashMap<>(byName);
+
+        ServerEvents.RECIPES_AFTER_LOADED.post(ScriptType.SERVER,
+            new AfterRecipesLoadedEventJS(recipes, byName));
     }
 }

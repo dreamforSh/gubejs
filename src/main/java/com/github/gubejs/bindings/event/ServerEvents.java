@@ -9,6 +9,8 @@ import com.github.gubejs.loot.EntityLootEventJS;
 import com.github.gubejs.loot.FishingLootEventJS;
 import com.github.gubejs.loot.GenericLootEventJS;
 import com.github.gubejs.loot.GiftLootEventJS;
+import com.github.gubejs.recipe.AfterRecipesLoadedEventJS;
+import com.github.gubejs.recipe.CompostableRecipesEventJS;
 import com.github.gubejs.recipe.RecipesEventJS;
 import com.github.gubejs.script.data.DataPackEventJS;
 import com.github.gubejs.server.CommandEventJS;
@@ -56,6 +58,25 @@ public interface ServerEvents {
 
     /** Adds, removes and edits recipes. Fires on every datapack reload. */
     EventHandler RECIPES = GROUP.server("recipes", () -> RecipesEventJS.class);
+
+    /**
+     * Fires once every recipe has been read, with the recipes themselves rather than their JSON.
+     *
+     * <p>For finding out what is actually in the game, and for reaching the recipes a mod added
+     * while its own serialiser was running — which never existed as a file and so cannot be seen
+     * from {@link #RECIPES}.
+     */
+    EventHandler RECIPES_AFTER_LOADED = GROUP.server("afterRecipes",
+        () -> AfterRecipesLoadedEventJS.class);
+
+    /**
+     * What the composter accepts.
+     *
+     * <p>Not a recipe type in this version, and not data — a static map filled while the game
+     * loads, which is why it has an event of its own.
+     */
+    EventHandler COMPOSTABLE_RECIPES = GROUP.server("compostableRecipes",
+        () -> CompostableRecipesEventJS.class);
 
     /**
      * Adds and removes tag entries — {@code ServerEvents.tags('item', event => ...)}.

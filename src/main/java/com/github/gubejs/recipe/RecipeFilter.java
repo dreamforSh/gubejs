@@ -117,6 +117,82 @@ public final class RecipeFilter {
         return inputs == null || matchesAny(inputs, collectIngredients(object));
     }
 
+    /**
+     * Reports whether a recipe that has already been read matches.
+     *
+     * <p>The same conditions as {@link #test(ResourceLocation, JsonElement)}, asked of a loaded
+     * recipe rather than of its JSON. One thing differs and cannot be made not to: a tag written as
+     * {@code input: '#minecraft:planks'} is matched here against the items the tag expanded to,
+     * because by this point the ingredient no longer remembers it was written as a tag.
+     *
+     * @param recipe the loaded recipe
+     * @return {@code true} if every stated condition holds
+     */
+    public boolean test(net.minecraft.world.item.crafting.Recipe<?> recipe) {
+        var recipeId = recipe.getId();
+
+        if (id != null && !id.matcher(recipeId.toString()).matches()) {
+            return false;
+        }
+
+        if (mod != null && !recipeId.getNamespace().equals(mod)) {
+            return false;
+        }
+
+        if (types != null && !matchesLoadedType(recipe)) {
+            return false;
+        }
+
+        if (outputs != null && !matchesAny(outputs, itemIds(recipe.getResultItem()))) {
+            return false;
+        }
+
+        if (inputs == null) {
+            return true;
+        }
+
+        var found = new ArrayList<String>();
+
+        for (var ingredient : recipe.getIngredients()) {
+            for (var stack : ingredient.getItems()) {
+                found.addAll(itemIds(stack));
+            }
+        }
+
+        return matchesAny(inputs, found);
+    }
+
+    /**
+     * Whether a loaded recipe is one of the wanted types.
+     *
+     * <p>Two ids are tried, because {@code type} means one thing in a recipe file and another in a
+     * loaded recipe. What the file spells {@code minecraft:crafting_shaped} is a serialiser; the
+     * loaded recipe's {@code getType()} is {@code minecraft:crafting}, shared by every shape of
+     * crafting recipe there is. A filter written once has to mean the same thing on both sides, so
+     * the serialiser is checked first and the recipe type after it.
+     */
+    private boolean matchesLoadedType(net.minecraft.world.item.crafting.Recipe<?> recipe) {
+        var serializer =
+            net.minecraft.core.Registry.RECIPE_SERIALIZER.getKey(recipe.getSerializer());
+
+        if (serializer != null && types.contains(serializer.toString())) {
+            return true;
+        }
+
+        var type = net.minecraft.core.Registry.RECIPE_TYPE.getKey(recipe.getType());
+        return type != null && types.contains(type.toString());
+    }
+
+    /** The id of one stack's item, or nothing at all when the stack is empty. */
+    private static List<String> itemIds(net.minecraft.world.item.ItemStack stack) {
+        if (stack.isEmpty()) {
+            return List.of();
+        }
+
+        return List.of(String.valueOf(
+            net.minecraftforge.registries.ForgeRegistries.ITEMS.getKey(stack.getItem())));
+    }
+
     /** Whether any wanted id appears among the ids found in the recipe. */
     private static boolean matchesAny(List<String> wanted, List<String> found) {
         for (var w : wanted) {

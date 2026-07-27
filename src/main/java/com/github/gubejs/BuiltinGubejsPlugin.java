@@ -51,19 +51,41 @@ public final class BuiltinGubejsPlugin extends GubejsPlugin {
     /**
      * The {@code global} object, which survives reloads and is shared by all three script types.
      *
-     * <p>What a pack uses to hand a value from a startup script to a server script. Concurrent
+     * <p>What a pack uses to hand a value from a startup script to a server script. Synchronised,
      * because the three script types are loaded from different threads.
+     *
+     * <p>A synchronised {@link java.util.HashMap} rather than a {@link ConcurrentHashMap}, which
+     * would be the obvious choice and is the wrong one: a concurrent map rejects a null value, so
+     * {@code global.thing = null} — which a pack writes to clear something, and which works in
+     * KubeJS — would throw a {@link NullPointerException} from inside the conversion, naming
+     * nothing a pack author could act on.
      */
-    public static final Map<String, Object> GLOBAL = new ConcurrentHashMap<>();
+    public static final Map<String, Object> GLOBAL =
+        java.util.Collections.synchronizedMap(new java.util.HashMap<>());
 
     @Override
     public void init() {
         ItemBuilder.registerTypes();
         com.github.gubejs.item.ToolItemBuilder.registerTypes();
         com.github.gubejs.item.ArmorItemBuilder.registerTypes();
+        com.github.gubejs.item.MusicDiscItemBuilder.registerTypes();
         BlockBuilder.registerTypes();
         com.github.gubejs.block.ShapedBlockBuilder.registerTypes();
+        com.github.gubejs.block.DetectorBlockBuilder.registerTypes();
+        com.github.gubejs.block.FallingBlockBuilder.registerTypes();
+        com.github.gubejs.block.CardinalBlockBuilder.registerTypes();
+        com.github.gubejs.block.CropBlockBuilder.registerTypes();
         com.github.gubejs.fluid.FluidBuilder.registerTypes();
+        com.github.gubejs.misc.SoundEventBuilder.registerTypes();
+        com.github.gubejs.misc.MobEffectBuilder.registerTypes();
+        com.github.gubejs.misc.EnchantmentBuilder.registerTypes();
+        com.github.gubejs.misc.PotionBuilder.registerTypes();
+        com.github.gubejs.misc.ParticleTypeBuilder.registerTypes();
+        com.github.gubejs.misc.PaintingVariantBuilder.registerTypes();
+        com.github.gubejs.misc.CustomStatBuilder.registerTypes();
+        com.github.gubejs.misc.PoiTypeBuilder.registerTypes();
+        com.github.gubejs.misc.VillagerTypeBuilder.registerTypes();
+        com.github.gubejs.misc.VillagerProfessionBuilder.registerTypes();
         com.github.gubejs.recipe.RecipeSchema.registerBuiltIn();
     }
 
@@ -79,6 +101,7 @@ public final class BuiltinGubejsPlugin extends GubejsPlugin {
         ClientEvents.GROUP.register();
         NetworkEvents.GROUP.register();
         com.github.gubejs.bindings.event.WorldgenEvents.GROUP.register();
+        com.github.gubejs.bindings.event.GameStageEvents.GROUP.register();
     }
 
     @Override

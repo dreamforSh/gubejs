@@ -52,14 +52,21 @@ public class ArmorItemBuilder extends ItemBuilder {
         }
 
         var name = String.valueOf(unwrapped);
+        var scripted = ItemArmorTierRegistryEventJS.get(name);
+
+        if (scripted != null) {
+            this.material = scripted;
+            return this;
+        }
 
         try {
             this.material = ArmorMaterials.valueOf(name.toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException ignored) {
             ConsoleJS.STARTUP.error("Unknown armour material '" + name + "'. Known: "
                 + java.util.Arrays.toString(ArmorMaterials.values())
-                + ". A modded material has to be passed as the object itself, since it is not "
-                + "in any registry this can look it up in.");
+                + ", or one defined by ItemEvents.armorTierRegistry. A modded material has to be "
+                + "passed as the object itself, since it is not in any registry this can look it "
+                + "up in.");
         }
 
         return this;

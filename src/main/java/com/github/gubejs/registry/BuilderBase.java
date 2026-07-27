@@ -120,6 +120,20 @@ public abstract class BuilderBase<T> {
         return Map.of();
     }
 
+    /**
+     * Returns the sound definitions this object needs, keyed by the sound's id.
+     *
+     * <p>Separate from {@link #getGeneratedAssets()} because {@code sounds.json} is one file per
+     * namespace holding every sound in it. A builder returning that path as an asset would return
+     * a whole file, and a second sound in the same namespace would replace it rather than be added
+     * to it. These are merged instead, the way translations are.
+     *
+     * @return sound id to its {@code sounds.json} entry, empty when nothing needs generating
+     */
+    public Map<ResourceLocation, com.google.gson.JsonObject> getGeneratedSounds() {
+        return Map.of();
+    }
+
     @Override
     public String toString() {
         return getClass().getSimpleName() + "(" + id + ")";

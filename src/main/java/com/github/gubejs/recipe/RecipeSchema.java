@@ -60,6 +60,29 @@ public interface RecipeSchema {
         }
     }
 
+    /** Which types a script described, so a startup reload can take them back out again. */
+    java.util.Set<ResourceLocation> FROM_SCRIPTS = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /**
+     * Registers a schema a script wrote.
+     *
+     * <p>Kept apart from {@link #register} so that {@link #clearScripted} can undo exactly these
+     * and leave the built-in and plugin-supplied ones alone.
+     *
+     * @param type the recipe type id
+     * @param schema how to read its arguments
+     */
+    static void registerFromScript(ResourceLocation type, RecipeSchema schema) {
+        REGISTRY.put(type, schema);
+        FROM_SCRIPTS.add(type);
+    }
+
+    /** Forgets every schema a script wrote, so running the startup scripts again is idempotent. */
+    static void clearScripted() {
+        FROM_SCRIPTS.forEach(REGISTRY::remove);
+        FROM_SCRIPTS.clear();
+    }
+
     /**
      * Looks up a registered schema.
      *

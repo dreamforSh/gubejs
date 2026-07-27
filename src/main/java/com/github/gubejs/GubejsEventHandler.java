@@ -293,6 +293,12 @@ public final class GubejsEventHandler {
             PlayerEvents.INVENTORY_OPENED.post(
                 new InventoryEventJS(event.getEntity(), event.getContainer()), menuTypeOf(event));
         }
+
+        if (PlayerEvents.CHEST_OPENED.hasListeners()
+            && event.getContainer() instanceof net.minecraft.world.inventory.ChestMenu) {
+            PlayerEvents.CHEST_OPENED.post(new com.github.gubejs.player.ChestEventJS(
+                event.getEntity(), event.getContainer()), menuTypeOf(event));
+        }
     }
 
     @SubscribeEvent
@@ -300,6 +306,12 @@ public final class GubejsEventHandler {
         if (PlayerEvents.INVENTORY_CLOSED.hasListeners()) {
             PlayerEvents.INVENTORY_CLOSED.post(
                 new InventoryEventJS(event.getEntity(), event.getContainer()), menuTypeOf(event));
+        }
+
+        if (PlayerEvents.CHEST_CLOSED.hasListeners()
+            && event.getContainer() instanceof net.minecraft.world.inventory.ChestMenu) {
+            PlayerEvents.CHEST_CLOSED.post(new com.github.gubejs.player.ChestEventJS(
+                event.getEntity(), event.getContainer()), menuTypeOf(event));
         }
     }
 

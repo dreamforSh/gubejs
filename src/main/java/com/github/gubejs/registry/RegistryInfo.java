@@ -58,6 +58,58 @@ public final class RegistryInfo<T> {
     public static final RegistryInfo<net.minecraftforge.fluids.FluidType> FLUID_TYPE =
         register(net.minecraftforge.registries.ForgeRegistries.Keys.FLUID_TYPES, "fluid_type");
 
+    /** The sound event registry. */
+    public static final RegistryInfo<net.minecraft.sounds.SoundEvent> SOUND_EVENT =
+        register(Registry.SOUND_EVENT_REGISTRY, "sound_event");
+
+    /** The status effect registry — what a potion or a beacon applies. */
+    public static final RegistryInfo<net.minecraft.world.effect.MobEffect> MOB_EFFECT =
+        register(Registry.MOB_EFFECT_REGISTRY, "mob_effect");
+
+    /** The enchantment registry. */
+    public static final RegistryInfo<net.minecraft.world.item.enchantment.Enchantment> ENCHANTMENT =
+        register(Registry.ENCHANTMENT_REGISTRY, "enchantment");
+
+    /**
+     * The potion registry, which holds the recipes for the brewing stand rather than the effects.
+     *
+     * <p>A potion is a named list of {@link #MOB_EFFECT} instances; the bottle, the splash and the
+     * lingering variants are all the same entry seen through three items.
+     */
+    public static final RegistryInfo<net.minecraft.world.item.alchemy.Potion> POTION =
+        register(Registry.POTION_REGISTRY, "potion");
+
+    /** The particle type registry. */
+    public static final RegistryInfo<net.minecraft.core.particles.ParticleType<?>> PARTICLE_TYPE =
+        register(Registry.PARTICLE_TYPE_REGISTRY, "particle_type");
+
+    /** The painting variant registry — one entry per picture a painting can show. */
+    public static final RegistryInfo<net.minecraft.world.entity.decoration.PaintingVariant>
+        PAINTING_VARIANT = register(Registry.PAINTING_VARIANT_REGISTRY, "painting_variant");
+
+    /**
+     * The custom statistic registry.
+     *
+     * <p>Its entries are plain ids: a custom stat is a counter the scoreboard and {@code /stats}
+     * can name, and there is nothing else to it.
+     */
+    public static final RegistryInfo<ResourceLocation> CUSTOM_STAT =
+        register(Registry.CUSTOM_STAT_REGISTRY, "custom_stat");
+
+    /** The point of interest registry — the blocks villagers and other mobs walk towards. */
+    public static final RegistryInfo<net.minecraft.world.entity.ai.village.poi.PoiType>
+        POINT_OF_INTEREST_TYPE = register(Registry.POINT_OF_INTEREST_TYPE_REGISTRY,
+            "point_of_interest_type");
+
+    /** The villager biome-variant registry, which decides what a villager wears. */
+    public static final RegistryInfo<net.minecraft.world.entity.npc.VillagerType> VILLAGER_TYPE =
+        register(Registry.VILLAGER_TYPE_REGISTRY, "villager_type");
+
+    /** The villager profession registry. */
+    public static final RegistryInfo<net.minecraft.world.entity.npc.VillagerProfession>
+        VILLAGER_PROFESSION = register(Registry.VILLAGER_PROFESSION_REGISTRY,
+            "villager_profession");
+
     private static <T> RegistryInfo<T> register(ResourceKey<? extends Registry<T>> key, String name) {
         var info = new RegistryInfo<T>(key, name);
         ALL.put(key, info);
