@@ -104,6 +104,25 @@ public final class RecipeFilter {
     }
 
     /**
+     * Reports whether one recipe names an item on one of its sides.
+     *
+     * <p>Shared with {@link RecipeJS#hasInput}, so asking about a single recipe answers by the same
+     * walk an {@code input:} or {@code output:} filter uses. A separate implementation would be the
+     * kind that disagrees with the filter on exactly the recipes that are hard to read — a modded
+     * type nesting its operation, or a recipe this mod has wrapped.
+     *
+     * @param recipe the recipe's JSON
+     * @param wanted an item id, a {@code #tag}, or a list of either
+     * @param results whether to look at the recipe's results rather than its inputs
+     * @return whether any wanted id appears on that side
+     */
+    static boolean contains(JsonObject recipe, @Nullable Object wanted, boolean results) {
+        var ids = ids(wanted);
+        return ids != null
+            && matchesAny(ids, results ? collectResults(recipe) : collectIngredients(recipe));
+    }
+
+    /**
      * Reports whether a recipe matches.
      *
      * @param recipeId the recipe's id

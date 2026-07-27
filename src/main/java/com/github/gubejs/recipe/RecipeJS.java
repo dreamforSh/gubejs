@@ -177,6 +177,73 @@ public final class RecipeJS {
         event.removeById(id);
     }
 
+    // --- rewriting ---------------------------------------------------------------------------
+
+    /**
+     * Replaces one ingredient of this recipe with another.
+     *
+     * <p>The single-recipe form of {@code event.replaceInput}, for when the recipes to change are
+     * easier to pick out in JavaScript than to describe as a filter:
+     *
+     * <pre>{@code
+     * event.forEachRecipe({ mod: 'create' }, r => {
+     *     if (r.id.path.includes('crushing')) {
+     *         r.replaceInput('minecraft:iron_ore', '#forge:ores/iron')
+     *     }
+     * })
+     * }</pre>
+     *
+     * @param from the ingredient to look for, as an item id or a {@code #tag}
+     * @param to what to put in its place
+     * @return this recipe
+     */
+    public RecipeJS replaceInput(Object from, Object to) {
+        if (event.replaceIn(json, from, to, false)) {
+            event.countModified();
+        }
+
+        return this;
+    }
+
+    /**
+     * Replaces one of this recipe's results with another.
+     *
+     * @param from the item to look for
+     * @param to what to put in its place
+     * @return this recipe
+     */
+    public RecipeJS replaceOutput(Object from, Object to) {
+        if (event.replaceIn(json, from, to, true)) {
+            event.countModified();
+        }
+
+        return this;
+    }
+
+    /**
+     * Whether this recipe consumes an item.
+     *
+     * <p>A tag is matched as written, not as what it expands to: a recipe asking for
+     * {@code #forge:ingots/iron} does not answer to {@code hasInput('minecraft:iron_ingot')}, since
+     * at this point the recipe is still JSON and the tag has not been resolved. Ask for the tag.
+     *
+     * @param ingredient an item id, a {@code #tag}, or a list of either
+     * @return whether any of them appears among the recipe's inputs
+     */
+    public boolean hasInput(@Nullable Object ingredient) {
+        return RecipeFilter.contains(json, ingredient, false);
+    }
+
+    /**
+     * Whether this recipe produces an item.
+     *
+     * @param item an item id or a list of ids
+     * @return whether any of them appears among the recipe's results
+     */
+    public boolean hasOutput(@Nullable Object item) {
+        return RecipeFilter.contains(json, item, true);
+    }
+
     // --- modifiers ---------------------------------------------------------------------------
 
     /**

@@ -64,6 +64,30 @@ public class BlockBuilder extends BuilderBase<Block> {
     @Nullable
     protected ResourceLocation texture;
 
+    /** Which of the game's render passes the block is drawn in; see {@link #renderType}. */
+    protected String renderType = "solid";
+
+    protected boolean noCollision;
+
+    protected boolean transparent;
+
+    protected boolean noDrops;
+
+    protected boolean noValidSpawns;
+
+    protected float friction = 0.6F;
+
+    protected float speedFactor = 1F;
+
+    protected float jumpFactor = 1F;
+
+    @Nullable
+    protected net.minecraft.world.level.material.MaterialColor mapColor;
+
+    /** The shape the block occupies, or {@code null} for the whole cube. */
+    @Nullable
+    protected net.minecraft.world.phys.shapes.VoxelShape shape;
+
     /** Filled in once {@link #createObject()} has run, so the block item can point at the block. */
     /** The built block. Protected so a subclass building a different shape can store its own. */
     @Nullable
@@ -168,6 +192,200 @@ public class BlockBuilder extends BuilderBase<Block> {
      */
     public BlockBuilder noItem() {
         this.createItem = false;
+        return this;
+    }
+
+    // --- appearance ----------------------------------------------------------------------------
+
+    /**
+     * Sets which of the game's render passes draws the block.
+     *
+     * <p>The default, {@code solid}, ignores transparency in the texture entirely — a glass texture
+     * drawn in it comes out as an opaque block with black where the holes should be. Which pass a
+     * block belongs in is not something a model file can say in this version, so it has to be set
+     * here.
+     *
+     * <p>Anything but {@code solid} also turns occlusion off. A block that lets light or a view
+     * through has to be excluded from face culling as well, or the faces of its neighbours behind
+     * it are never drawn and the hole shows the void.
+     *
+     * @param renderType one of {@code solid}, {@code cutout}, {@code cutout_mipped},
+     *     {@code translucent} or {@code tripwire}
+     * @return this builder
+     */
+    public BlockBuilder renderType(String renderType) {
+        this.renderType = renderType;
+        return this;
+    }
+
+    /**
+     * Draws the block in the pass that keeps fully transparent pixels transparent, the way leaves
+     * and iron bars are drawn.
+     *
+     * @return this builder
+     */
+    public BlockBuilder defaultCutout() {
+        return renderType("cutout");
+    }
+
+    /**
+     * Draws the block in the pass that keeps partly transparent pixels partly transparent, the way
+     * stained glass and ice are drawn.
+     *
+     * @return this builder
+     */
+    public BlockBuilder defaultTranslucent() {
+        return renderType("translucent");
+    }
+
+    /**
+     * Returns the render pass this block was asked for.
+     *
+     * @return the render type name
+     */
+    public String getRenderType() {
+        return renderType;
+    }
+
+    /**
+     * Whether the block hides what is behind it, for lighting and face culling.
+     *
+     * @param opaque {@code false} for a block light and sight pass through
+     * @return this builder
+     */
+    public BlockBuilder opaque(boolean opaque) {
+        this.transparent = !opaque;
+        return this;
+    }
+
+    /**
+     * Stops the block hiding what is behind it, without changing its render pass.
+     *
+     * <p>What a block with a model smaller than a cube needs, so the faces around it keep being
+     * drawn.
+     *
+     * @return this builder
+     */
+    public BlockBuilder notSolid() {
+        return opaque(false);
+    }
+
+    /**
+     * Sets the colour the block shows on a map.
+     *
+     * @param color a {@link net.minecraft.world.level.material.MaterialColor}, a dye colour name
+     *     such as {@code 'red'}, or a colour id
+     * @return this builder
+     */
+    public BlockBuilder mapColor(Object color) {
+        this.mapColor = materialColorOf(color);
+        return this;
+    }
+
+    // --- physics -------------------------------------------------------------------------------
+
+    /**
+     * Lets everything walk and fall through the block, the way a torch or tall grass is passed
+     * through.
+     *
+     * @return this builder
+     */
+    public BlockBuilder noCollision() {
+        this.noCollision = true;
+        return this;
+    }
+
+    /**
+     * Sets the shape the block occupies, in the sixteenths a model is measured in.
+     *
+     * <p>The same numbers as a model's {@code from} and {@code to}, so a script can copy them
+     * across rather than convert them. This is the collision box and the outline both; the model is
+     * a separate matter and a block whose shape and model disagree looks wrong rather than breaks.
+     *
+     * @param x0 first corner, 0-16
+     * @param y0 first corner, 0-16
+     * @param z0 first corner, 0-16
+     * @param x1 opposite corner, 0-16
+     * @param y1 opposite corner, 0-16
+     * @param z1 opposite corner, 0-16
+     * @return this builder
+     */
+    public BlockBuilder box(double x0, double y0, double z0, double x1, double y1, double z1) {
+        this.shape = Block.box(x0, y0, z0, x1, y1, z1);
+        return this;
+    }
+
+    /**
+     * Returns the shape the block occupies.
+     *
+     * @return the shape, or {@code null} for the whole cube
+     */
+    @Nullable
+    public net.minecraft.world.phys.shapes.VoxelShape getShape() {
+        return shape;
+    }
+
+    /**
+     * Sets how slippery the block is.
+     *
+     * @param friction 0.6 for most blocks, 0.98 for ice
+     * @return this builder
+     */
+    public BlockBuilder slipperiness(double friction) {
+        this.friction = (float) friction;
+        return this;
+    }
+
+    /**
+     * Sets how fast things move along the block.
+     *
+     * @param speedFactor 1 for most blocks, 0.4 for soul sand
+     * @return this builder
+     */
+    public BlockBuilder speedFactor(double speedFactor) {
+        this.speedFactor = (float) speedFactor;
+        return this;
+    }
+
+    /**
+     * Sets how high things can jump from the block.
+     *
+     * @param jumpFactor 1 for most blocks, 0.5 for honey
+     * @return this builder
+     */
+    public BlockBuilder jumpFactor(double jumpFactor) {
+        this.jumpFactor = (float) jumpFactor;
+        return this;
+    }
+
+    /**
+     * Makes the block drop nothing when broken, whatever its loot table says.
+     *
+     * @return this builder
+     */
+    public BlockBuilder noDrops() {
+        this.noDrops = true;
+        return this;
+    }
+
+    /**
+     * Makes the block unbreakable, the way bedrock is.
+     *
+     * @return this builder
+     */
+    public BlockBuilder unbreakable() {
+        this.hardness = -1F;
+        this.resistance = 3600000F;
+        return this;
+    }
+
+    /**
+     * Stops anything spawning on the block.
+     *
+     * @return this builder
+     */
+    public BlockBuilder noValidSpawns() {
+        this.noValidSpawns = true;
         return this;
     }
 
@@ -313,7 +531,7 @@ public class BlockBuilder extends BuilderBase<Block> {
         // A block with memory has to be an EntityBlock, and that is a different class -- the
         // interface decides whether the game ever asks the block for an entity at all.
         block = blockEntity == null
-            ? new Block(createProperties())
+            ? new GubejsBasicBlock(createProperties(), shape)
             : new com.github.gubejs.block.entity.GubejsEntityBlock(createProperties(), this);
         return block;
     }
@@ -357,12 +575,37 @@ public class BlockBuilder extends BuilderBase<Block> {
      * @return the properties
      */
     protected BlockBehaviour.Properties createProperties() {
-        var properties = BlockBehaviour.Properties.of(material)
+        var properties = (mapColor == null
+            ? BlockBehaviour.Properties.of(material)
+            : BlockBehaviour.Properties.of(material, mapColor))
             .strength(hardness, resistance)
-            .sound(soundType);
+            .sound(soundType)
+            .friction(friction)
+            .speedFactor(speedFactor)
+            .jumpFactor(jumpFactor);
 
         if (requiresTool) {
             properties.requiresCorrectToolForDrops();
+        }
+
+        if (noCollision) {
+            properties.noCollission();
+        }
+
+        // A render pass other than solid implies it: a block drawn with holes in it that still
+        // occludes leaves its neighbours' faces unrendered, and the holes show the void rather than
+        // what is behind the block. Asking a pack to remember notSolid() alongside every
+        // defaultCutout() would only mean forgetting it.
+        if (transparent || !"solid".equals(renderType)) {
+            properties.noOcclusion();
+        }
+
+        if (noDrops) {
+            properties.noLootTable();
+        }
+
+        if (noValidSpawns) {
+            properties.isValidSpawn((state, level, pos, type) -> false);
         }
 
         if (lightLevel > 0) {
@@ -419,6 +662,39 @@ public class BlockBuilder extends BuilderBase<Block> {
         }
 
         return assets;
+    }
+
+    /**
+     * Reads a map colour from whatever a script named it by.
+     *
+     * <p>The game keeps these as constants with names of their own ({@code COLOR_RED}) and no
+     * lookup by name, so a dye colour is the way in: those are the sixteen names a pack already
+     * knows, and each one carries the matching map colour.
+     *
+     * @param color a material colour, a dye colour name, or a colour id
+     * @return the colour, or {@code null} if nothing goes by that name
+     */
+    @Nullable
+    protected static net.minecraft.world.level.material.MaterialColor materialColorOf(
+        Object color) {
+        var unwrapped = ValueUtils.unwrap(color);
+
+        if (unwrapped instanceof net.minecraft.world.level.material.MaterialColor materialColor) {
+            return materialColor;
+        } else if (unwrapped instanceof Number number) {
+            return net.minecraft.world.level.material.MaterialColor.byId(number.intValue());
+        }
+
+        var name = ValueUtils.asString(unwrapped);
+        var dye = name == null ? null : net.minecraft.world.item.DyeColor.byName(name, null);
+
+        if (dye == null) {
+            com.github.gubejs.util.ConsoleJS.STARTUP.warn(
+                "There is no map colour called '" + name + "'");
+            return null;
+        }
+
+        return dye.getMaterialColor();
     }
 
     /** Registers the block types scripts can create. */

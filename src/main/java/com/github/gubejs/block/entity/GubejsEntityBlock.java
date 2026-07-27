@@ -26,7 +26,7 @@ import com.github.gubejs.event.EventExit;
 import com.github.gubejs.util.ConsoleJS;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.Block;
+import com.github.gubejs.block.GubejsBasicBlock;
 import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
@@ -42,12 +42,12 @@ import org.jetbrains.annotations.Nullable;
  * and whether the game ever asks a block for an entity is decided by whether the block implements
  * it. A flag checked at runtime would be asked too late.
  */
-public class GubejsEntityBlock extends Block implements EntityBlock {
+public class GubejsEntityBlock extends GubejsBasicBlock implements EntityBlock {
 
     private final BlockBuilder builder;
 
     public GubejsEntityBlock(Properties properties, BlockBuilder builder) {
-        super(properties);
+        super(properties, builder.getShape());
         this.builder = builder;
     }
 

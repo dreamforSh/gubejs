@@ -144,6 +144,53 @@ public final class GubejsClient {
             event.enqueueWork(() -> ItemEvents.MODEL_PROPERTIES.post(ScriptType.STARTUP,
                 new ItemModelPropertiesEventJS()));
         }
+
+        event.enqueueWork(GubejsClient::registerRenderTypes);
+    }
+
+    /**
+     * Puts each created block in the render pass its builder asked for.
+     *
+     * <p>Client-side and after registration, because the map this writes to lives in the renderer
+     * and is keyed by the block object, which does not exist until the block registry has been
+     * filled. A block left out of it is drawn in the solid pass, where transparency in its texture
+     * comes out black.
+     */
+    private static void registerRenderTypes() {
+        for (var builder : com.github.gubejs.registry.RegistryInfo.BLOCK.getBuilders()) {
+            if (!(builder instanceof com.github.gubejs.block.BlockBuilder blockBuilder)) {
+                continue;
+            }
+
+            var type = renderTypeOf(blockBuilder.getRenderType());
+
+            if (type != null) {
+                net.minecraft.client.renderer.ItemBlockRenderTypes.setRenderLayer(
+                    blockBuilder.get(), type);
+            }
+        }
+    }
+
+    /**
+     * Returns the render pass a script named.
+     *
+     * @param name the pass name
+     * @return the pass, or {@code null} for the solid pass every block is in already
+     */
+    @org.jetbrains.annotations.Nullable
+    private static net.minecraft.client.renderer.RenderType renderTypeOf(String name) {
+        return switch (name) {
+            case "solid" -> null;
+            case "cutout" -> net.minecraft.client.renderer.RenderType.cutout();
+            case "cutout_mipped" -> net.minecraft.client.renderer.RenderType.cutoutMipped();
+            case "translucent" -> net.minecraft.client.renderer.RenderType.translucent();
+            case "tripwire" -> net.minecraft.client.renderer.RenderType.tripwire();
+            default -> {
+                com.github.gubejs.util.ConsoleJS.STARTUP.warn("There is no render type called '"
+                    + name + "'; the block will be drawn in the solid pass");
+                yield null;
+            }
+        };
     }
 
     /**

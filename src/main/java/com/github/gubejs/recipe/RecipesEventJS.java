@@ -524,8 +524,6 @@ public final class RecipesEventJS extends EventJS {
 
     private int replace(@Nullable Object filter, Object from, Object to, boolean results) {
         var parsed = RecipeFilter.of(filter);
-        var target = RecipeJson.idOf(from);
-        var replacement = results ? RecipeJson.result(to) : RecipeJson.ingredient(to);
         var changed = 0;
 
         for (var entry : recipes.entrySet()) {
@@ -533,33 +531,49 @@ public final class RecipesEventJS extends EventJS {
                 continue;
             }
 
-            var touched = false;
-
-            for (var field : object.entrySet()) {
-                if (field.getKey().equals("type")) {
-                    continue;
-                }
-
-                // Descended into rather than skipped, whichever direction this is: a field that is
-                // not itself a result can still contain one -- a modded type nesting its whole
-                // operation under a key of its own, or a recipe this mod has wrapped. Which half
-                // gets rewritten is decided per subtree by rewrite(), from the keys on the way in.
-                var rewritten = rewrite(field.getValue(), target, replacement,
-                    RecipeJson.RESULT_KEYS.contains(field.getKey()), results);
-
-                if (rewritten != null) {
-                    field.setValue(rewritten);
-                    touched = true;
-                }
-            }
-
-            if (touched) {
+            if (replaceIn(object, from, to, results)) {
                 changed++;
             }
         }
 
         modifiedCount += changed;
         return changed;
+    }
+
+    /**
+     * Rewrites one side of a single recipe, in place.
+     *
+     * <p>Shared with {@link RecipeJS#replaceInput}, so a script rewriting one recipe it picked out
+     * in JavaScript gets the same walk as a filtered {@code event.replaceInput} — including the
+     * depth and the input/output line, which are the parts that are easy to get subtly wrong.
+     *
+     * @param results whether to rewrite the recipe's results rather than its inputs
+     * @return whether anything was rewritten
+     */
+    boolean replaceIn(JsonObject object, Object from, Object to, boolean results) {
+        var target = RecipeJson.idOf(from);
+        var replacement = results ? RecipeJson.result(to) : RecipeJson.ingredient(to);
+        var touched = false;
+
+        for (var field : object.entrySet()) {
+            if (field.getKey().equals("type")) {
+                continue;
+            }
+
+            // Descended into rather than skipped, whichever direction this is: a field that is
+            // not itself a result can still contain one -- a modded type nesting its whole
+            // operation under a key of its own, or a recipe this mod has wrapped. Which half
+            // gets rewritten is decided per subtree by rewrite(), from the keys on the way in.
+            var rewritten = rewrite(field.getValue(), target, replacement,
+                RecipeJson.RESULT_KEYS.contains(field.getKey()), results);
+
+            if (rewritten != null) {
+                field.setValue(rewritten);
+                touched = true;
+            }
+        }
+
+        return touched;
     }
 
     /**
