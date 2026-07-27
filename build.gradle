@@ -174,25 +174,6 @@ tasks.matching { it.name.startsWith('run') && it.hasProperty('minecraftArtifacts
     dependsOn it.name == 'runData' ? copyGraalModData : copyGraalMod
 }
 
-/**
- * Installs the self-check pack, which exercises every binding, the recipe API, the methods mixed
- * into the game's own classes, and the engine features Gubejs has that KubeJS does not.
- *
- * <p>Opt-in, because it edits the run directory a developer is otherwise using for a real pack:
- * {@code gradlew runServer -PgubejsSelfCheck}. The server script stops the server when it is done,
- * so the run is one pass with a pass/fail count in {@code run/logs/gubejs/}.
- */
-var installSelfCheck = tasks.register('installSelfCheck', Copy) {
-    description = 'Copies the self-check scripts into the run directory'
-    from file('selfcheck')
-    into file('run/kubejs')
-}
-
-if (project.hasProperty('gubejsSelfCheck')) {
-    tasks.matching { it.name.startsWith('run') && it.hasProperty('minecraftArtifacts') }
-        .configureEach { dependsOn installSelfCheck }
-}
-
 // This block of code expands all declared replace properties in the specified resource targets.
 tasks.named('processResources', ProcessResources).configure {
     var replaceProperties = [minecraft_version   : minecraft_version, minecraft_version_range: minecraft_version_range,

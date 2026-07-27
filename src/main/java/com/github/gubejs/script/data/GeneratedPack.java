@@ -4,11 +4,16 @@ import com.github.gubejs.Gubejs;
 import com.github.gubejs.GubejsPaths;
 import com.github.gubejs.registry.RegistryInfo;
 import com.github.gubejs.util.JsonUtils;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.packs.PackType;
+import net.minecraft.server.packs.metadata.MetadataSectionSerializer;
+import net.minecraft.server.packs.metadata.pack.PackMetadataSection;
 import net.minecraft.server.packs.repository.Pack;
 import net.minecraft.server.packs.repository.PackSource;
 import net.minecraftforge.event.AddPackFindersEvent;
@@ -42,15 +47,13 @@ public final class GeneratedPack {
     public static void register(AddPackFindersEvent event) {
         try {
             writeGeneratedFiles();
-            writePackMeta(GubejsPaths.DIRECTORY, "Gubejs pack folder");
-            writePackMeta(GENERATED, "Gubejs generated assets");
         } catch (Exception ex) {
             Gubejs.LOGGER.error("Could not prepare the generated pack", ex);
             return;
         }
 
-        addPack(event, GENERATED, "gubejs_generated", "Gubejs Generated");
-        addPack(event, GubejsPaths.DIRECTORY, "gubejs_pack", "Gubejs Pack Folder");
+        addPack(event, GENERATED, "gubejs_generated", "Gubejs generated assets");
+        addPack(event, GubejsPaths.DIRECTORY, "gubejs_pack", "Gubejs pack folder");
     }
 
     private static void addPack(AddPackFindersEvent event, Path root, String id, String title) {
@@ -58,7 +61,7 @@ public final class GeneratedPack {
             var pack = Pack.create(
                 id,
                 true,
-                () -> new PathPackResources(id, root),
+                () -> new DirectoryPack(id, root, title),
                 constructor,
                 // Bottom, so that a resource pack the player enables can still override anything
                 // here -- these are defaults, not overrides.
@@ -147,24 +150,59 @@ public final class GeneratedPack {
         Gubejs.LOGGER.info("Generated {} asset file(s)", files.size());
     }
 
-    /** A pack with no {@code pack.mcmeta} is not a pack, so one is written if it is missing. */
-    private static void writePackMeta(Path root, String description) throws Exception {
-        var file = root.resolve("pack.mcmeta");
+    /**
+     * A directory served as a pack, with its {@code pack.mcmeta} answered from memory.
+     *
+     * <p>A pack with no metadata is not a pack, and the obvious way to supply it is to write a
+     * {@code pack.mcmeta} into the directory. That is what this used to do, and it is wrong for
+     * {@code kubejs/}: that directory belongs to the pack author, is usually a git repository, and
+     * gaining a file nobody wrote — one whose format numbers go stale the moment the game updates —
+     * is noise at best and a spurious diff at worst.
+     *
+     * <p>An author who does write their own {@code pack.mcmeta} still wins: it is read from disk
+     * when it is there, so a pack that wants a different description or a different format says so
+     * the ordinary way.
+     */
+    private static final class DirectoryPack extends PathPackResources {
 
-        if (Files.exists(file)) {
-            return;
+        /** 1.19.2: resource packs are format 9, datapacks format 10. */
+        private static final int RESOURCE_FORMAT = 9;
+
+        private static final int DATA_FORMAT = 10;
+
+        private final PackMetadataSection metadata;
+
+        private DirectoryPack(String id, Path source, String description) {
+            super(id, source);
+            this.metadata = new PackMetadataSection(Component.literal(description),
+                RESOURCE_FORMAT, Map.of(
+                    PackType.CLIENT_RESOURCES, RESOURCE_FORMAT,
+                    PackType.SERVER_DATA, DATA_FORMAT));
         }
 
-        Files.createDirectories(root);
-        Files.writeString(file, """
-            {
-              "pack": {
-                "description": "%s",
-                "pack_format": 9,
-                "forge:resource_pack_format": 9,
-                "forge:data_pack_format": 10
-              }
-            }""".formatted(description), StandardCharsets.UTF_8);
+        @Override
+        public <T> T getMetadataSection(MetadataSectionSerializer<T> serializer) throws IOException {
+            if (hasResource("pack.mcmeta")) {
+                return super.getMetadataSection(serializer);
+            }
+
+            // Only the section a pack is required to have. Anything else -- a filter, an overlay --
+            // is genuinely absent rather than something to invent.
+            return PackMetadataSection.SERIALIZER.getMetadataSectionName()
+                .equals(serializer.getMetadataSectionName()) ? cast(metadata) : null;
+        }
+
+        /**
+         * Narrows the one section this supplies to the type the caller asked for.
+         *
+         * <p>The signature is generic in the section type and the check above is a string
+         * comparison on its name, which is the only thing the interface offers — no signature can
+         * prove to the compiler that the two agree.
+         */
+        @SuppressWarnings("unchecked")
+        private <T> T cast(PackMetadataSection section) {
+            return (T) section;
+        }
     }
 
     private static void deleteRecursively(Path root) throws Exception {
