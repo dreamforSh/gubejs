@@ -18,6 +18,7 @@
     "LevelMixin",
     "LootTablesMixin",
     "MinecraftServerMixin",
+    "MutableComponentMixin",
     "PlayerAdvancementsMixin",
     "PlayerMixin",
     "RecipeManagerMixin",

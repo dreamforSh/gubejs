@@ -1,3 +1,24 @@
+/*
+ * SPDX-License-Identifier: LGPL-3.0-only
+ *
+ * Gubejs - KubeJS-compatible scripting for Minecraft, on GraalJS
+ * Copyright (C) 2026 xinian and Gubejs contributors
+ *
+ * This file is derived from KubeJS (branch 1902),
+ * Copyright (C) LatvianModder and KubeJS contributors, originally at
+ * common/src/main/java/dev/latvian/mods/kubejs/recipe/filter/RecipeFilter.java
+ *
+ * This program is free software: you can redistribute it and/or modify it under the terms
+ * of the GNU Lesser General Public License, version 3, as published by the Free Software
+ * Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+ * without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License along with this
+ * program. If not, see <https://www.gnu.org/licenses/>.
+ */
 package com.github.gubejs.recipe;
 
 import com.github.gubejs.item.ItemStackJS;
@@ -218,7 +239,23 @@ public final class RecipeFilter {
      */
     private static List<String> collectResults(JsonObject recipe) {
         var ids = new ArrayList<String>();
-        collectResultsInto(recipe, false, ids);
+
+        // The top level first, and usually only. Nearly every recipe there is names its result
+        // right here, and this path costs one lookup per key rather than a walk of the whole
+        // recipe -- which matters because `event.remove({ output: ... })` is the most common thing
+        // a pack writes, and every one of those calls tests every recipe in the game.
+        for (var key : RecipeJson.RESULT_KEYS) {
+            if (recipe.has(key)) {
+                collectResultsInto(recipe.get(key), true, ids);
+            }
+        }
+
+        if (ids.isEmpty()) {
+            // Nothing at the top: a modded type that nests its whole operation under a key of its
+            // own, or a recipe this mod has wrapped, which keeps the original one level down.
+            collectResultsInto(recipe, false, ids);
+        }
+
         return ids;
     }
 

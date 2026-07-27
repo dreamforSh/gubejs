@@ -1,3 +1,24 @@
+/*
+ * SPDX-License-Identifier: LGPL-3.0-only
+ *
+ * Gubejs - KubeJS-compatible scripting for Minecraft, on GraalJS
+ * Copyright (C) 2026 xinian and Gubejs contributors
+ *
+ * This file is derived from KubeJS (branch 1902),
+ * Copyright (C) LatvianModder and KubeJS contributors, originally at
+ * common/src/main/java/dev/latvian/mods/kubejs/command/KubeJSCommands.java
+ *
+ * This program is free software: you can redistribute it and/or modify it under the terms
+ * of the GNU Lesser General Public License, version 3, as published by the Free Software
+ * Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+ * without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License along with this
+ * program. If not, see <https://www.gnu.org/licenses/>.
+ */
 package com.github.gubejs;
 
 import com.github.gubejs.bindings.event.ServerEvents;
@@ -9,7 +30,9 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.registries.ForgeRegistries;
@@ -44,13 +67,15 @@ public final class GubejsCommands {
             .then(Commands.literal("errors")
                 .executes(ctx -> listMessages(ctx.getSource(), ScriptType.SERVER, true))
                 .then(Commands.argument("type", StringArgumentType.word())
-                    .executes(ctx -> listMessages(ctx.getSource(),
-                        typeOf(StringArgumentType.getString(ctx, "type")), true))))
+                    .suggests(SCRIPT_TYPES)
+                    .executes(ctx -> listMessagesFor(ctx.getSource(),
+                        StringArgumentType.getString(ctx, "type"), true))))
             .then(Commands.literal("warnings")
                 .executes(ctx -> listMessages(ctx.getSource(), ScriptType.SERVER, false))
                 .then(Commands.argument("type", StringArgumentType.word())
-                    .executes(ctx -> listMessages(ctx.getSource(),
-                        typeOf(StringArgumentType.getString(ctx, "type")), false))))
+                    .suggests(SCRIPT_TYPES)
+                    .executes(ctx -> listMessagesFor(ctx.getSource(),
+                        StringArgumentType.getString(ctx, "type"), false))))
             .then(Commands.literal("hand")
                 .executes(ctx -> describeHeldItem(ctx.getSource(), InteractionHand.MAIN_HAND)))
             .then(Commands.literal("offhand")
@@ -108,11 +133,105 @@ public final class GubejsCommands {
 
     private static int reloadServer(CommandSourceStack source) {
         source.sendSuccess(Component.literal("Reloading server scripts..."), true);
-        // Through the vanilla reload rather than reloading scripts alone: recipes and tags are
-        // rebuilt from the scripts, and reloading one without the other would leave the two
-        // disagreeing.
-        source.getServer().getCommands().performPrefixedCommand(source, "reload");
+
+        var server = source.getServer();
+        var startedAt = System.currentTimeMillis();
+
+        // The vanilla reload's own steps rather than '/reload' itself, for one reason: running the
+        // command hands back nothing, and what this needs is the future. A reload is asynchronous,
+        // so without it there is no moment at which to say whether it worked -- which left the
+        // command saying "reloading" and then nothing at all, however long it took or however
+        // badly it went.
+        //
+        // Through the whole datapack reload rather than the scripts alone, as before: recipes and
+        // tags are rebuilt from the scripts, and reloading one without the other would leave the
+        // two disagreeing.
+        server.reloadResources(discoverPacks(server))
+            .handleAsync((ignored, error) -> {
+                if (error != null) {
+                    Gubejs.LOGGER.error("Failed to reload", error);
+                    source.sendFailure(Component.literal(
+                        "The reload failed: " + rootCauseOf(error)
+                            + ". The server is still running what it had loaded before; "
+                            + "see logs/latest.log."));
+                } else {
+                    reportReload(source, System.currentTimeMillis() - startedAt);
+                }
+
+                return null;
+            }, server);
+
         return 1;
+    }
+
+    /**
+     * The packs the reload should use, including any that appeared on disk since the last one.
+     *
+     * <p>What {@code /reload} does before reloading, repeated here because that logic is private to
+     * the vanilla command and dropping it would mean a pack added while the server ran stayed
+     * invisible until a restart.
+     */
+    private static java.util.Collection<String> discoverPacks(net.minecraft.server.MinecraftServer server) {
+        var repository = server.getPackRepository();
+        repository.reload();
+
+        var selected = new java.util.ArrayList<>(repository.getSelectedIds());
+        var disabled = server.getWorldData().getDataPackConfig().getDisabled();
+
+        for (var id : repository.getAvailableIds()) {
+            if (!disabled.contains(id) && !selected.contains(id)) {
+                selected.add(id);
+            }
+        }
+
+        return selected;
+    }
+
+    /**
+     * Says the reload finished, and what the scripts had to say about it.
+     *
+     * <p>The counts are the point. A reload that "worked" but logged forty errors is not a reload
+     * that worked, and a pack author watching chat should not have to go and ask.
+     *
+     * @param source who asked for the reload
+     * @param millis how long it took
+     */
+    private static void reportReload(CommandSourceStack source, long millis) {
+        var seconds = millis / 1000D;
+        var errors = ScriptType.SERVER.errors.size();
+        var warnings = ScriptType.SERVER.warnings.size();
+
+        if (errors == 0 && warnings == 0) {
+            source.sendSuccess(Component.literal("Reloaded in " + seconds + "s")
+                .withStyle(ChatFormatting.GREEN), true);
+            return;
+        }
+
+        source.sendSuccess(Component.literal("Reloaded in " + seconds + "s, with "
+                + errors + " error(s) and " + warnings + " warning(s)")
+            .withStyle(errors > 0 ? ChatFormatting.RED : ChatFormatting.GOLD), true);
+
+        // Clickable, so the next step is one click rather than a command to remember.
+        if (errors > 0) {
+            source.sendSuccess(ScriptType.SERVER.errorsComponent("/gubejs errors server_scripts"),
+                false);
+        }
+
+        if (warnings > 0) {
+            source.sendSuccess(
+                ScriptType.SERVER.warningsComponent("/gubejs warnings server_scripts"), false);
+        }
+    }
+
+    /** The message worth showing out of a chain of wrapper exceptions. */
+    private static String rootCauseOf(Throwable error) {
+        var cause = error;
+
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+
+        return cause.getMessage() == null ? cause.toString() : cause.getMessage();
     }
 
     /**
@@ -173,8 +292,11 @@ public final class GubejsCommands {
         var messages = errors ? type.errors : type.warnings;
 
         if (messages.isEmpty()) {
-            source.sendSuccess(Component.literal("No " + type.name + " script "
-                + (errors ? "errors" : "warnings")).withStyle(ChatFormatting.GREEN), false);
+            source.sendSuccess(Component.literal(errors ? "No errors found!" : "No warnings found!")
+                .withStyle(ChatFormatting.GREEN), false);
+            // "No errors" is not the same as "nothing to look at", and a pack author who stopped
+            // reading there would miss the warnings entirely.
+            pointAtWarnings(source, type, errors);
             return 0;
         }
 
@@ -189,7 +311,35 @@ public final class GubejsCommands {
                 .withStyle(errors ? ChatFormatting.RED : ChatFormatting.YELLOW), false);
         }
 
+        if (errors) {
+            // Chat truncates a stack trace and a long one scrolls away; the file has all of it.
+            source.sendSuccess(Component.literal("More info in ")
+                .append(Component.literal("'logs/" + Gubejs.MOD_ID + "/" + type.name + ".log'")
+                    .withStyle(style -> style
+                        .withClickEvent(new ClickEvent(ClickEvent.Action.OPEN_FILE,
+                            type.getLogFile().toAbsolutePath().toString()))
+                        .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
+                            Component.literal(type.getLogFile().toAbsolutePath().toString())))))
+                .withStyle(ChatFormatting.DARK_RED), false);
+        }
+
+        pointAtWarnings(source, type, errors);
         return messages.size();
+    }
+
+    /**
+     * Adds the "and there are warnings too" line after a list of errors.
+     *
+     * <p>Only after the errors: listing the warnings and then pointing at the warnings would be
+     * telling somebody what they are already looking at.
+     *
+     * @param wasErrors whether the list just printed was the errors
+     */
+    private static void pointAtWarnings(CommandSourceStack source, ScriptType type,
+                                        boolean wasErrors) {
+        if (wasErrors && !type.warnings.isEmpty()) {
+            source.sendSuccess(type.warningsComponent("/gubejs warnings " + type.name), false);
+        }
     }
 
     /**
@@ -310,13 +460,60 @@ public final class GubejsCommands {
                     Component.literal(info + " — click to copy")))));
     }
 
+    /**
+     * Reads a script type from what was typed.
+     *
+     * <p>Both spellings, because the rest of the command tree uses the longer one: somebody who has
+     * just typed {@code /gubejs reload startup_scripts} will type {@code /gubejs errors
+     * startup_scripts} next, and being handed the server's errors instead — silently, which is what
+     * this used to do — is worse than being told the name was not understood.
+     *
+     * @param name what was typed
+     * @return the type, or {@code null} if nothing goes by that name
+     */
+    @org.jetbrains.annotations.Nullable
     private static ScriptType typeOf(String name) {
         for (var type : ScriptType.VALUES) {
-            if (type.name.equalsIgnoreCase(name)) {
+            if (type.name.equalsIgnoreCase(name) || (type.name + "_scripts").equalsIgnoreCase(name)) {
                 return type;
             }
         }
 
-        return ScriptType.SERVER;
+        return null;
+    }
+
+    /** Completes the script type argument, in both the spellings {@link #typeOf} accepts. */
+    private static final com.mojang.brigadier.suggestion.SuggestionProvider<CommandSourceStack>
+        SCRIPT_TYPES = (ctx, builder) -> {
+            for (var type : ScriptType.VALUES) {
+                builder.suggest(type.name + "_scripts");
+            }
+
+            return builder.buildFuture();
+        };
+
+    /**
+     * Lists one script type's messages, or says why it cannot.
+     *
+     * @param name the script type as it was typed
+     * @param errors whether to list errors rather than warnings
+     * @return how many were listed
+     */
+    private static int listMessagesFor(CommandSourceStack source, String name, boolean errors) {
+        var type = typeOf(name);
+
+        if (type == null) {
+            var known = new java.util.ArrayList<String>();
+
+            for (var known_type : ScriptType.VALUES) {
+                known.add(known_type.name + "_scripts");
+            }
+
+            source.sendFailure(Component.literal("There is no script type called '" + name
+                + "'. Try one of: " + String.join(", ", known)));
+            return 0;
+        }
+
+        return listMessages(source, type, errors);
     }
 }
