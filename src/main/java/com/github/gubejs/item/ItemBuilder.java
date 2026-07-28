@@ -116,12 +116,23 @@ public class ItemBuilder extends BuilderBase<Item> {
     /**
      * Sets which creative tab the item appears in.
      *
-     * @param tab the tab, or {@code null} to hide it from creative
+     * @param tab the tab, its name — {@code 'misc'}, {@code 'tools'}, {@code 'kubejs'} — or
+     *     {@code null} to hide it from creative
      * @return this builder
      */
-    public ItemBuilder creativeTab(@Nullable CreativeModeTab tab) {
-        this.tab = tab;
+    public ItemBuilder creativeTab(@Nullable Object tab) {
+        this.tab = CreativeTabs.find(tab);
         return this;
+    }
+
+    /**
+     * Sets which creative tab the item appears in, under the name KubeJS packs use for it.
+     *
+     * @param tab the tab or its name
+     * @return this builder
+     */
+    public ItemBuilder group(@Nullable Object tab) {
+        return creativeTab(tab);
     }
 
     /**
@@ -186,9 +197,179 @@ public class ItemBuilder extends BuilderBase<Item> {
         return this;
     }
 
+    /**
+     * What has to be set on the item once it exists, in the order the script said it.
+     *
+     * <p>A list of pending changes rather than a properties field each, because every one of these
+     * lands in the same place — the item's own {@link ItemModifications} — and that object needs the
+     * item, which does not exist while the script is running.
+     */
+    private final java.util.List<java.util.function.Consumer<ItemModifications>> pending =
+        new java.util.ArrayList<>();
+
+    /**
+     * Adds lines under the item's name.
+     *
+     * <pre>{@code
+     * event.create('ancient_coin').tooltip('Older than the mountains')
+     * }</pre>
+     *
+     * @param lines strings, components, or arrays of either
+     * @return this builder
+     */
+    public ItemBuilder tooltip(Object... lines) {
+        return modify(modifications -> modifications.tooltip(lines));
+    }
+
+    /**
+     * Makes the item shimmer as an enchanted one does.
+     *
+     * @param glow whether it glows
+     * @return this builder
+     */
+    public ItemBuilder glow(boolean glow) {
+        return modify(modifications -> modifications.setGlow(glow));
+    }
+
+    /**
+     * Makes the item usable as furnace fuel.
+     *
+     * @param ticks how long it burns — 200 is one item smelted, 1600 is a piece of coal
+     * @return this builder
+     */
+    public ItemBuilder burnTime(int ticks) {
+        return modify(modifications -> modifications.setBurnTime(ticks));
+    }
+
+    /**
+     * Leaves another item in the grid when this one is used in a recipe.
+     *
+     * <p>What makes a bucket come back empty rather than being consumed.
+     *
+     * @param item the item left behind, or {@code null} for nothing
+     * @return this builder
+     */
+    public ItemBuilder containerItem(@Nullable Object item) {
+        return modify(modifications -> modifications.setContainerItem(item));
+    }
+
+    /**
+     * Sets the colour of the item's durability bar.
+     *
+     * @param color anything {@code Color.of} accepts
+     * @return this builder
+     */
+    public ItemBuilder barColor(Object color) {
+        return modify(modifications -> modifications.setBarColor(color));
+    }
+
+    /**
+     * Shows a bar under the item, however full the number says.
+     *
+     * @param width 0 for empty, 1 for full
+     * @return this builder
+     */
+    public ItemBuilder barWidth(double width) {
+        return modify(modifications -> modifications.setBarWidth(width));
+    }
+
+    /**
+     * Sets how long the item is held down when used.
+     *
+     * @param ticks the duration — 32 is food, 72000 is "until let go"
+     * @return this builder
+     */
+    public ItemBuilder useDuration(int ticks) {
+        return modify(modifications -> modifications.setUseDuration(ticks));
+    }
+
+    /**
+     * Sets what holding the item looks like.
+     *
+     * @param animation {@code 'eat'}, {@code 'drink'}, {@code 'bow'}, {@code 'block'} and the rest
+     * @return this builder
+     */
+    public ItemBuilder useAnimation(Object animation) {
+        return modify(modifications -> modifications.setUseAnimation(animation));
+    }
+
+    /**
+     * Runs a callback when the item is right-clicked with nothing under the cursor.
+     *
+     * <pre>{@code
+     * event.create('spark').use(event => {
+     *     if (event.server) {
+     *         event.level.spawnLightning(event.player.x, event.player.y, event.player.z)
+     *     }
+     *     return true
+     * })
+     * }</pre>
+     *
+     * @param callback takes the event, returns {@code true} if the item did something
+     * @return this builder
+     */
+    public ItemBuilder use(java.util.function.Function<ItemCallbackEventJS, Object> callback) {
+        return modify(modifications -> modifications.use(callback));
+    }
+
+    /**
+     * Runs a callback when a hold finishes — needs {@link #useDuration} and {@link #useAnimation}.
+     *
+     * @param callback takes the event, returns what to leave in the hand
+     * @return this builder
+     */
+    public ItemBuilder finishUsing(
+        java.util.function.Function<ItemCallbackEventJS, Object> callback) {
+        return modify(modifications -> modifications.finishUsing(callback));
+    }
+
+    /**
+     * Runs a callback when a hold is let go early.
+     *
+     * @param callback takes the event, which carries {@code timeLeft}
+     * @return this builder
+     */
+    public ItemBuilder releaseUsing(
+        java.util.function.Function<ItemCallbackEventJS, Object> callback) {
+        return modify(modifications -> modifications.releaseUsing(callback));
+    }
+
+    /**
+     * Runs a callback when the item is used to hit something.
+     *
+     * <p>Only reached by an item whose class leaves {@code hurtEnemy} to {@code Item} — which every
+     * plain item does and no vanilla weapon class does. An item that has to hurt on hit is therefore
+     * a plain item with an attack attribute rather than one of the {@code sword} and {@code axe}
+     * types.
+     *
+     * @param callback takes the event, returns {@code false} to skip the usual durability loss
+     * @return this builder
+     */
+    public ItemBuilder hurtEnemy(
+        java.util.function.Function<ItemCallbackEventJS, Object> callback) {
+        return modify(modifications -> modifications.hurtEnemy(callback));
+    }
+
+    /** Records one change to apply once the item exists. */
+    private ItemBuilder modify(java.util.function.Consumer<ItemModifications> change) {
+        pending.add(change);
+        return this;
+    }
+
     @Override
     public Item createObject() {
         return new Item(createProperties());
+    }
+
+    @Override
+    protected void afterCreated(Item object) {
+        if (pending.isEmpty()) {
+            return;
+        }
+
+        var modifications =
+            ((com.github.gubejs.core.ItemKJS) object).gjs$getOrCreateModifications();
+        pending.forEach(change -> change.accept(modifications));
     }
 
     /**

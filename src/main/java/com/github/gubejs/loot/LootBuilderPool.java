@@ -118,7 +118,7 @@ public final class LootBuilderPool
     public LootBuilderEntry addItem(Object item, int weight, Object count) {
         var stack = ItemStackJS.of(item);
         var entry = new LootBuilderEntry("minecraft:item")
-            .name(net.minecraftforge.registries.ForgeRegistries.ITEMS.getKey(stack.getItem()))
+            .id(net.minecraftforge.registries.ForgeRegistries.ITEMS.getKey(stack.getItem()))
             .weight(weight);
 
         if (count != null) {
@@ -145,7 +145,7 @@ public final class LootBuilderPool
     public LootBuilderEntry addTag(Object tag, boolean expand) {
         var text = String.valueOf(ValueUtils.unwrap(tag));
         var entry = new LootBuilderEntry("minecraft:tag")
-            .name(text.startsWith("#") ? text.substring(1) : text)
+            .id(text.startsWith("#") ? text.substring(1) : text)
             .set("expand", expand);
         entries.add(entry.toJson());
         return entry;
@@ -158,7 +158,7 @@ public final class LootBuilderPool
      * @return the entry
      */
     public LootBuilderEntry addLootTable(Object id) {
-        var entry = new LootBuilderEntry("minecraft:loot_table").name(id);
+        var entry = new LootBuilderEntry("minecraft:loot_table").id(id);
         entries.add(entry.toJson());
         return entry;
     }

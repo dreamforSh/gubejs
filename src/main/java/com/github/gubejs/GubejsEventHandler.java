@@ -69,6 +69,7 @@ import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.living.LivingSpawnEvent;
 import net.minecraftforge.event.entity.player.EntityItemPickupEvent;
 import net.minecraftforge.event.entity.player.PlayerContainerEvent;
+import net.minecraftforge.event.entity.player.PlayerDestroyItemEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.level.BlockEvent;
@@ -252,6 +253,34 @@ public final class GubejsEventHandler {
     public void playerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         if (PlayerEvents.LOGGED_OUT.hasListeners()) {
             PlayerEvents.LOGGED_OUT.post(new PlayerEventJS(event.getEntity()));
+        }
+    }
+
+    /**
+     * Carries a player's persistent data across a death.
+     *
+     * <p>Forge keeps one subtag of it — {@code PlayerPersisted}, where this mod's stages live — and
+     * throws the rest away, because a player who died is a new entity object. KubeJS copies the
+     * whole thing, so a pack that stored a quest state in {@code player.persistentData} finds it
+     * again after respawning; without this the state is gone with no error and the player is simply
+     * back at the beginning.
+     *
+     * <p>Existing keys are left alone rather than overwritten: whatever Forge or another mod already
+     * put on the new player is theirs and is newer than what is being copied.
+     *
+     * @param event Forge's player clone event, fired on death and on leaving the End
+     */
+    @SubscribeEvent
+    public void playerCloned(PlayerEvent.Clone event) {
+        var from = event.getOriginal().getPersistentData();
+        var to = event.getEntity().getPersistentData();
+
+        for (var key : from.getAllKeys()) {
+            var value = from.get(key);
+
+            if (value != null && !to.contains(key)) {
+                to.put(key, value.copy());
+            }
         }
     }
 
@@ -520,6 +549,22 @@ public final class GubejsEventHandler {
     }
 
     @SubscribeEvent
+    public void itemDestroyed(PlayerDestroyItemEvent event) {
+        if (!ItemEvents.DESTROYED.hasListeners()) {
+            return;
+        }
+
+        var stack = event.getOriginal();
+
+        if (stack.isEmpty()) {
+            return;
+        }
+
+        ItemEvents.DESTROYED.post(new com.github.gubejs.item.ItemDestroyedEventJS(
+            event.getEntity(), stack, event.getHand()), stack.getItem());
+    }
+
+    @SubscribeEvent
     public void foodEaten(LivingEntityUseItemEvent.Finish event) {
         if (!ItemEvents.FOOD_EATEN.hasListeners() || !(event.getEntity() instanceof Player player)) {
             return;
@@ -578,6 +623,23 @@ public final class GubejsEventHandler {
 
         if (EntityEvents.DEATH.post(new LivingEntityDeathEventJS(entity, event.getSource()),
             entity.getType()).interruptFalse()) {
+            event.setCanceled(true);
+        }
+    }
+
+    @SubscribeEvent
+    public void entityDrops(net.minecraftforge.event.entity.living.LivingDropsEvent event) {
+        if (!EntityEvents.DROPS.hasListeners()) {
+            return;
+        }
+
+        var entity = event.getEntity();
+        var dropsEvent = new com.github.gubejs.entity.LivingEntityDropsEventJS(entity,
+            event.getSource(), event.getDrops(), event.getLootingLevel(), event.isRecentlyHit());
+
+        // Cancelling this Forge event means the drops are never spawned, which is exactly what a
+        // script cancelling it asks for -- the list it edited is thrown away with it.
+        if (EntityEvents.DROPS.post(dropsEvent, entity.getType()).interruptFalse()) {
             event.setCanceled(true);
         }
     }

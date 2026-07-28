@@ -61,8 +61,8 @@ public final class RecipeJS {
     /**
      * Renames the recipe.
      *
-     * <p>Worth doing for anything a pack expects to find again — an advancement, a recipe book
-     * unlock, or a later script that removes it — because the generated name is derived from the
+     * <p>Worth doing for anything a pack expects to find again 鈥?an advancement, a recipe book
+     * unlock, or a later script that removes it 鈥?because the generated name is derived from the
      * output and changes if the output does.
      *
      * @param newId the id to use, with {@code gubejs:} assumed when no namespace is given
@@ -82,7 +82,7 @@ public final class RecipeJS {
     /**
      * Sets any other key in the recipe's JSON.
      *
-     * <p>The escape hatch for recipe types with options this mod does not model —
+     * <p>The escape hatch for recipe types with options this mod does not model 鈥?
      * {@code .set('processingTime', 200)}.
      *
      * @param key the JSON key
@@ -91,7 +91,7 @@ public final class RecipeJS {
      */
     public RecipeJS set(String key, @Nullable Object value) {
         json.add(key, JsonUtils.of(value));
-        event.countModified();
+        event.countModified(id);
         return this;
     }
 
@@ -106,7 +106,7 @@ public final class RecipeJS {
             json.add(entry.getKey(), entry.getValue());
         }
 
-        event.countModified();
+        event.countModified(id);
         return this;
     }
 
@@ -149,7 +149,7 @@ public final class RecipeJS {
      *
      * <p>The stage is {@link com.github.gubejs.core.PackStages}, which is the whole pack's, not
      * {@code player.stages}. A condition is asked once as the recipe is read and there is no player
-     * to ask about — a recipe loads for everyone or for no one.
+     * to ask about 鈥?a recipe loads for everyone or for no one.
      *
      * @param stage the stage name
      * @return this recipe
@@ -163,7 +163,7 @@ public final class RecipeJS {
             ? json.getAsJsonArray("conditions") : new JsonArray();
         conditions.add(condition);
         json.add("conditions", conditions);
-        event.countModified();
+        event.countModified(id);
         return this;
     }
 
@@ -199,7 +199,7 @@ public final class RecipeJS {
      */
     public RecipeJS replaceInput(Object from, Object to) {
         if (event.replaceIn(json, from, to, false)) {
-            event.countModified();
+            event.countModified(id);
         }
 
         return this;
@@ -214,7 +214,7 @@ public final class RecipeJS {
      */
     public RecipeJS replaceOutput(Object from, Object to) {
         if (event.replaceIn(json, from, to, true)) {
-            event.countModified();
+            event.countModified(id);
         }
 
         return this;
@@ -275,7 +275,7 @@ public final class RecipeJS {
      * Damages an ingredient by an amount instead of consuming it.
      *
      * <p>An ingredient with no durability is kept instead of being damaged, since damaging it
-     * would mean consuming it — the opposite of what the recipe asked for.
+     * would mean consuming it 鈥?the opposite of what the recipe asked for.
      *
      * @param ingredient which ingredient
      * @param amount how much durability it loses
@@ -299,6 +299,50 @@ public final class RecipeJS {
     }
 
     /**
+     * Consumes an ingredient outright, whatever it would rather leave behind.
+     *
+     * <pre>{@code
+     * event.shaped('mypack:cake', ['MMM'], { M: 'minecraft:milk_bucket' })
+     *     .consumeIngredient('minecraft:milk_bucket')     // no empty buckets back
+     * }</pre>
+     *
+     * <p>The opposite of {@link #keepIngredient}, and not the same as saying nothing: a bucket, a
+     * bottle or a modded container leaves its remainder in the grid by default.
+     *
+     * @param ingredient which ingredient, as an id, a {@code #tag} or a list
+     * @return this recipe
+     */
+    public RecipeJS consumeIngredient(@Nullable Object ingredient) {
+        return action("consume", ingredient, null);
+    }
+
+    /**
+     * Lets a function decide what an ingredient leaves in the grid.
+     *
+     * <pre>{@code
+     * event.shaped('mypack:etched_plate', ['SP'], { S: 'mypack:stamp', P: '#forge:plates' })
+     *     .customIngredientAction('mypack:stamp', (stack, original) => {
+     *         return stack.count > 1 ? stack.withCount(stack.count - 1) : original
+     *     })
+     * }</pre>
+     *
+     * <p>The escape hatch for the case none of the four named actions covers. Server-side only, for
+     * the same reason {@link #modifyResult} is: what stays in the grid is decided where the craft
+     * happens, and the client is told the answer rather than working it out.
+     *
+     * @param ingredient which ingredient
+     * @param function takes what is in the slot and what would otherwise be left, returns what to
+     *     leave
+     * @return this recipe
+     */
+    public RecipeJS customIngredientAction(@Nullable Object ingredient,
+                                           org.graalvm.polyglot.Value function) {
+        var action = actionFor("custom", ingredient);
+        action.addProperty("callback", RecipeCallbacks.register(function));
+        return addAction(action);
+    }
+
+    /**
      * Runs a function over the result before it is handed to the player.
      *
      * <pre>{@code
@@ -315,7 +359,7 @@ public final class RecipeJS {
      */
     public RecipeJS modifyResult(org.graalvm.polyglot.Value function) {
         modifiers().addProperty("modify_result", RecipeCallbacks.register(function));
-        event.countModified();
+        event.countModified(id);
         return this;
     }
 
@@ -329,7 +373,7 @@ public final class RecipeJS {
      */
     public RecipeJS noMirror() {
         modifiers().addProperty("no_mirror", true);
-        event.countModified();
+        event.countModified(id);
         return this;
     }
 
@@ -343,7 +387,7 @@ public final class RecipeJS {
      */
     public RecipeJS noShrink() {
         modifiers().addProperty("no_shrink", true);
-        event.countModified();
+        event.countModified(id);
         return this;
     }
 
@@ -370,7 +414,7 @@ public final class RecipeJS {
             ? wrapper.getAsJsonArray("actions") : new JsonArray();
         actions.add(action);
         wrapper.add("actions", actions);
-        event.countModified();
+        event.countModified(id);
         return this;
     }
 

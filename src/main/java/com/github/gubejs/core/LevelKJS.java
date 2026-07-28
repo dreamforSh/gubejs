@@ -23,11 +23,13 @@ package com.github.gubejs.core;
 
 import com.github.gubejs.block.BlockContainerJS;
 import com.github.gubejs.item.ItemStackJS;
+import com.github.gubejs.server.ServerData;
 import com.github.gubejs.util.ValueUtils;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleOptions;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvent;
@@ -325,6 +327,40 @@ public interface LevelKJS {
         if (type instanceof ParticleOptions options) {
             serverLevel.sendParticles(options, x, y, z, count, spreadX, spreadY, spreadZ, speed);
         }
+    }
+
+    // --- persistent data -----------------------------------------------------------------------
+
+    /**
+     * Returns this level's own scratch tag, which survives a restart.
+     *
+     * <pre>{@code
+     * const data = event.level.persistentData
+     * data.raidsSurvived = (data.raidsSurvived || 0) + 1
+     * }</pre>
+     *
+     * <p>Where a pack keeps state that belongs to one dimension rather than to the world as a
+     * whole — how far the End has been explored, which of the Nether's structures have been
+     * cleared. State that is about the world goes in {@code server.persistentData}, and in fact
+     * lives in the same saved file: this is a subtag of it, keyed by dimension id, so the two are
+     * loaded and written together. A pack that reads {@code server.persistentData} will see them
+     * there under {@code gubejs:levels}.
+     *
+     * <p>A client level answers a fresh empty tag every time. Nothing on a client is saved with
+     * the world — the save belongs to the server, which on a multiplayer client is somebody else's
+     * machine — so a client-side script writing here would be storing into a tag that is thrown
+     * away, and the empty tag makes that plain rather than pretending otherwise.
+     *
+     * @return the tag, empty and unsaved on the client
+     */
+    default CompoundTag getPersistentData() {
+        if (!(gjs$self() instanceof ServerLevel serverLevel)) {
+            return new CompoundTag();
+        }
+
+        return serverLevel.getServer().overworld().getDataStorage()
+            .computeIfAbsent(ServerData::load, ServerData::new, "gubejs")
+            .levelData(getDimension());
     }
 
     // --- identity ------------------------------------------------------------------------------

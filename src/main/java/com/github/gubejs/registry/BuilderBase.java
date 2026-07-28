@@ -49,6 +49,9 @@ public abstract class BuilderBase<T> {
     /** Extra translation keys this object needs, filled in by subclasses. */
     protected final Map<String, String> translations = new LinkedHashMap<>();
 
+    /** The tags this object should be in, in the registry it belongs to. */
+    protected final java.util.Set<ResourceLocation> tags = new java.util.LinkedHashSet<>();
+
     @Nullable
     private T created;
 
@@ -73,9 +76,24 @@ public abstract class BuilderBase<T> {
     public T get() {
         if (created == null) {
             created = createObject();
+            afterCreated(created);
         }
 
         return created;
+    }
+
+    /**
+     * Applies whatever can only be set once the object exists.
+     *
+     * <p>Most of what a script says goes into the properties object the constructor is handed, but
+     * not all of it can: a callback, a tooltip line or a burn time is state on the finished object,
+     * and the object does not exist until {@link #createObject()} has run. Doing it here rather than
+     * inside each {@code createObject} means a subclass that builds a different class — a tool, a
+     * piece of armour — gets it without repeating anything.
+     *
+     * @param object what was just built
+     */
+    protected void afterCreated(T object) {
     }
 
     /**
@@ -87,6 +105,50 @@ public abstract class BuilderBase<T> {
     public BuilderBase<T> displayName(Object name) {
         this.displayName = String.valueOf(ValueUtils.unwrap(name));
         return this;
+    }
+
+    /**
+     * Puts this object in one or more tags.
+     *
+     * <pre>{@code
+     * event.create('steel_block').requiresTool(true).tag('minecraft:mineable/pickaxe')
+     * }</pre>
+     *
+     * <p>Added as the tag loader reads the datapacks, so the result is what a datapack file saying
+     * the same thing would produce — nested tags still expand and everything that reads the tag
+     * afterwards agrees. It also means a tag stated here survives a reload without the script
+     * running again, because the builders outlive one.
+     *
+     * <p>A block put behind {@code requiresTool} needs this: without a {@code mineable/} tag there
+     * is no tool that counts as the right one, so the block drops nothing however it is broken.
+     *
+     * @param tags one or more tag ids, with or without a leading {@code #}
+     * @return this builder
+     */
+    public BuilderBase<T> tag(Object... tags) {
+        for (var tag : tags) {
+            for (var value : ValueUtils.listOf(tag)) {
+                var text = String.valueOf(ValueUtils.unwrap(value)).trim();
+                var id = ResourceLocation.tryParse(text.startsWith("#") ? text.substring(1) : text);
+
+                if (id == null) {
+                    com.github.gubejs.util.ConsoleJS.STARTUP.error("Not a tag id: '" + text + "'");
+                } else {
+                    this.tags.add(id);
+                }
+            }
+        }
+
+        return this;
+    }
+
+    /**
+     * Returns the tags this object should be in.
+     *
+     * @return the tag ids, in the order they were added
+     */
+    public java.util.Set<ResourceLocation> getTags() {
+        return tags;
     }
 
     /**

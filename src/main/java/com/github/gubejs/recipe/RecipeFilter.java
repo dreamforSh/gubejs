@@ -22,14 +22,18 @@
 package com.github.gubejs.recipe;
 
 import com.github.gubejs.item.ItemStackJS;
+import com.github.gubejs.util.ConsoleJS;
 import com.github.gubejs.util.ValueUtils;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import net.minecraft.resources.ResourceLocation;
+import org.graalvm.polyglot.Value;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -38,69 +42,213 @@ import org.jetbrains.annotations.Nullable;
  * <p>Every key is optional and all of them must match:
  *
  * <ul>
- *   <li>{@code id} — the recipe id, with {@code *} wildcards
+ *   <li>{@code id} — the recipe id, with {@code *} wildcards, or a regular expression
  *   <li>{@code mod} — the namespace of the recipe id
  *   <li>{@code type} — the recipe type, e.g. {@code minecraft:crafting_shaped}
  *   <li>{@code output} — an item the recipe produces
  *   <li>{@code input} — an item or tag the recipe consumes
+ *   <li>{@code group} — the recipe book group, with {@code *} wildcards or a regular expression
  * </ul>
+ *
+ * <p>And three that take filters of their own, so a condition can be written the way it is meant
+ * rather than as several calls:
+ *
+ * <pre>{@code
+ * event.remove({ type: 'minecraft:crafting_shaped', not: { mod: 'minecraft' } })
+ * event.remove({ or: [{ output: 'minecraft:stick' }, { output: 'minecraft:bowl' }] })
+ * event.remove([{ mod: 'create' }, { mod: 'mekanism' }])   // a list reads as "any of these"
+ * event.remove(/^minecraft:.*_slab$/)
+ * event.remove('/^minecraft:.*_slab$/i')       // the same, written as a string
+ * }</pre>
  *
  * <p>Matching happens against the recipe's JSON rather than against a deserialised recipe object.
  * That is what makes {@code input} and {@code output} work for recipe types this mod has never
  * heard of: a modded serialiser still spells its items as {@code {"item": "..."}} and its tags as
  * {@code {"tag": "..."}}, because that is what the vanilla ingredient codec reads.
  */
-public final class RecipeFilter {
+public abstract class RecipeFilter {
 
-    @Nullable
-    private final Pattern id;
+    /** Matches every recipe, which is what an empty filter means. */
+    public static final RecipeFilter ALL = new RecipeFilter() {
+        @Override
+        public boolean test(ResourceLocation recipeId, JsonElement json) {
+            return true;
+        }
 
-    @Nullable
-    private final String mod;
+        @Override
+        public boolean test(net.minecraft.world.item.crafting.Recipe<?> recipe) {
+            return true;
+        }
 
-    @Nullable
-    private final List<String> types;
+        @Override
+        public String toString() {
+            return "all";
+        }
+    };
 
-    @Nullable
-    private final List<String> outputs;
+    /**
+     * Reports whether a recipe matches.
+     *
+     * @param recipeId the recipe's id
+     * @param json the recipe's JSON
+     * @return {@code true} if every stated condition holds
+     */
+    public abstract boolean test(ResourceLocation recipeId, JsonElement json);
 
-    @Nullable
-    private final List<String> inputs;
-
-    private RecipeFilter(@Nullable Pattern id, @Nullable String mod, @Nullable List<String> types,
-                         @Nullable List<String> outputs, @Nullable List<String> inputs) {
-        this.id = id;
-        this.mod = mod;
-        this.types = types;
-        this.outputs = outputs;
-        this.inputs = inputs;
-    }
+    /**
+     * Reports whether a recipe that has already been read matches.
+     *
+     * <p>The same conditions as {@link #test(ResourceLocation, JsonElement)}, asked of a loaded
+     * recipe rather than of its JSON. Tags are the one thing that answers differently, and it
+     * cannot be made not to: a loaded recipe holds items and has forgotten whatever spelling the
+     * file used, so a filter naming a tag is answered by asking each item whether it is in that tag.
+     *
+     * <p>Which is to say {@code '#minecraft:planks'} matches here whenever the item in hand is a
+     * plank, on either side — including {@code output:}, where the JSON form can never match one,
+     * since a result in a file is always written as an item.
+     *
+     * @param recipe the loaded recipe
+     * @return {@code true} if every stated condition holds
+     */
+    public abstract boolean test(net.minecraft.world.item.crafting.Recipe<?> recipe);
 
     /**
      * Reads a filter from what a script passed.
      *
-     * <p>A bare string is taken as an id pattern, so {@code event.remove('minecraft:*')} works.
+     * <p>A bare string is taken as an id pattern, so {@code event.remove('minecraft:*')} works; a
+     * regular expression is taken as one too. A list is read as "any of these".
      *
-     * @param value an object, a string, or {@code null} for "everything"
+     * @param value an object, a string, a regular expression, a list, or {@code null} for
+     *     "everything"
      * @return the filter
      */
     public static RecipeFilter of(@Nullable Object value) {
+        // Before unwrapping, because a regular expression is a guest object whose pattern lives in
+        // members that converting to a map does not keep. Everything else goes the ordinary way.
+        if (value instanceof Value v && !v.isNull() && !v.isHostObject()) {
+            var regex = regexOf(v);
+
+            if (regex != null) {
+                return new Conditions(regex, null, null, null, null, null);
+            }
+
+            if (v.hasMembers() && !v.hasArrayElements() && !v.canExecute()) {
+                return fromKeys(v.getMemberKeys(), key -> v.hasMember(key) ? v.getMember(key) : null);
+            }
+        }
+
         var unwrapped = ValueUtils.unwrap(value);
 
         if (unwrapped == null) {
-            return new RecipeFilter(null, null, null, null, null);
+            return ALL;
+        } else if (unwrapped instanceof Pattern pattern) {
+            return new Conditions(pattern, null, null, null, null, null);
         } else if (unwrapped instanceof CharSequence text) {
-            return new RecipeFilter(toPattern(text.toString()), null, null, null, null);
+            return new Conditions(toPattern(text.toString()), null, null, null, null, null);
+        } else if (unwrapped instanceof List<?> list) {
+            return anyOf(list);
         } else if (unwrapped instanceof Map<?, ?> map) {
-            return new RecipeFilter(
-                map.get("id") == null ? null : toPattern(String.valueOf(map.get("id"))),
-                map.get("mod") == null ? null : String.valueOf(map.get("mod")),
-                ids(map.get("type")),
-                ids(map.get("output")),
-                ids(map.get("input")));
+            var keys = new ArrayList<String>();
+            map.keySet().forEach(k -> keys.add(String.valueOf(k)));
+            return fromKeys(keys, map::get);
         }
 
         throw new IllegalArgumentException("Not a recipe filter: " + unwrapped);
+    }
+
+    /**
+     * Builds a filter from an object's keys, however that object is being read.
+     *
+     * <p>The reader is passed in rather than the object because the two callers differ in exactly
+     * one way: one has a guest object, where a regular expression is still recognisable, and the
+     * other has a plain map. The keys and their meanings are the same either way.
+     *
+     * @param keys the keys the object has
+     * @param reader returns a key's value, or {@code null} if it has none
+     */
+    private static RecipeFilter fromKeys(Collection<String> keys, Function<String, Object> reader) {
+        var parts = new ArrayList<RecipeFilter>();
+
+        if (keys.contains("not")) {
+            parts.add(new Not(of(reader.apply("not"))));
+        }
+
+        if (keys.contains("or")) {
+            parts.add(anyOf(ValueUtils.listOf(reader.apply("or"))));
+        }
+
+        if (keys.contains("and")) {
+            parts.add(allOf(ValueUtils.listOf(reader.apply("and"))));
+        }
+
+        var conditions = conditionsOf(keys, reader);
+
+        if (conditions != null) {
+            parts.add(conditions);
+        }
+
+        if (parts.isEmpty()) {
+            // An object with none of the keys this understands. Answering "everything" would have
+            // event.remove({ outputs: 'x' }) -- one letter wrong -- delete every recipe in the game.
+            if (!keys.isEmpty()) {
+                ConsoleJS.SERVER.warn("Recipe filter " + keys + " states no condition this "
+                    + "understands, so it matches nothing. Keys: id, mod, type, output, input, "
+                    + "group, not, or, and");
+                return new Not(ALL);
+            }
+
+            return ALL;
+        }
+
+        return parts.size() == 1 ? parts.get(0) : new Group(parts, true);
+    }
+
+    /**
+     * Reads the plain conditions out of an object.
+     *
+     * @return the conditions, or {@code null} if the object states none
+     */
+    @Nullable
+    private static RecipeFilter conditionsOf(Collection<String> keys,
+                                             Function<String, Object> reader) {
+        var id = keys.contains("id") ? patternOf(reader.apply("id")) : null;
+        var mod = keys.contains("mod") ? ValueUtils.asString(reader.apply("mod")) : null;
+        var types = keys.contains("type") ? ids(reader.apply("type")) : null;
+        var outputs = keys.contains("output") ? ids(reader.apply("output")) : null;
+        var inputs = keys.contains("input") ? ids(reader.apply("input")) : null;
+        var group = keys.contains("group") ? patternOf(reader.apply("group")) : null;
+
+        if (id == null && mod == null && types == null && outputs == null && inputs == null
+            && group == null) {
+            return null;
+        }
+
+        return new Conditions(id, mod, types, outputs, inputs, group);
+    }
+
+    private static RecipeFilter anyOf(List<?> filters) {
+        return combine(filters, false);
+    }
+
+    private static RecipeFilter allOf(List<?> filters) {
+        return combine(filters, true);
+    }
+
+    private static RecipeFilter combine(List<?> filters, boolean all) {
+        var parts = new ArrayList<RecipeFilter>(filters.size());
+
+        for (var filter : filters) {
+            parts.add(of(filter));
+        }
+
+        if (parts.isEmpty()) {
+            // An empty 'or' matches nothing and an empty 'and' matches everything, which is what
+            // the words mean -- and either way it is what a filter built from an empty list asked
+            // for, so it is not second-guessed here.
+            return all ? ALL : new Not(ALL);
+        }
+
+        return parts.size() == 1 ? parts.get(0) : new Group(parts, all);
     }
 
     /**
@@ -122,115 +270,349 @@ public final class RecipeFilter {
             && matchesAny(ids, results ? collectResults(recipe) : collectIngredients(recipe));
     }
 
-    /**
-     * Reports whether a recipe matches.
-     *
-     * @param recipeId the recipe's id
-     * @param json the recipe's JSON
-     * @return {@code true} if every stated condition holds
-     */
-    public boolean test(ResourceLocation recipeId, JsonElement json) {
-        if (id != null && !id.matcher(recipeId.toString()).matches()) {
-            return false;
+    // --- the filters ---------------------------------------------------------------------------
+
+    /** The plain conditions, all of which must hold. */
+    private static final class Conditions extends RecipeFilter {
+
+        @Nullable
+        private final Pattern id;
+
+        @Nullable
+        private final String mod;
+
+        @Nullable
+        private final List<String> types;
+
+        @Nullable
+        private final List<String> outputs;
+
+        @Nullable
+        private final List<String> inputs;
+
+        @Nullable
+        private final Pattern group;
+
+        private Conditions(@Nullable Pattern id, @Nullable String mod,
+                           @Nullable List<String> types, @Nullable List<String> outputs,
+                           @Nullable List<String> inputs, @Nullable Pattern group) {
+            this.id = id;
+            this.mod = mod;
+            this.types = types;
+            this.outputs = outputs;
+            this.inputs = inputs;
+            this.group = group;
         }
 
-        if (mod != null && !recipeId.getNamespace().equals(mod)) {
-            return false;
-        }
-
-        if (!(json instanceof JsonObject object)) {
-            return types == null && outputs == null && inputs == null;
-        }
-
-        if (types != null) {
-            var type = object.has("type") ? object.get("type").getAsString() : "";
-
-            if (!types.contains(normalise(type))) {
+        @Override
+        public boolean test(ResourceLocation recipeId, JsonElement json) {
+            if (id != null && !id.matcher(recipeId.toString()).find()) {
                 return false;
             }
+
+            if (mod != null && !recipeId.getNamespace().equals(mod)) {
+                return false;
+            }
+
+            if (!(json instanceof JsonObject object)) {
+                return types == null && outputs == null && inputs == null && group == null;
+            }
+
+            if (types != null) {
+                var type = object.has("type") ? object.get("type").getAsString() : "";
+
+                if (!types.contains(normalise(type))) {
+                    return false;
+                }
+            }
+
+            if (group != null) {
+                var name = object.has("group") && object.get("group").isJsonPrimitive()
+                    ? object.get("group").getAsString() : "";
+
+                if (!group.matcher(name).find()) {
+                    return false;
+                }
+            }
+
+            if (outputs != null && !matchesAny(outputs, collectResults(object))) {
+                return false;
+            }
+
+            return inputs == null || matchesAny(inputs, collectIngredients(object));
         }
 
-        if (outputs != null && !matchesAny(outputs, collectResults(object))) {
-            return false;
+        @Override
+        public boolean test(net.minecraft.world.item.crafting.Recipe<?> recipe) {
+            var recipeId = recipe.getId();
+
+            if (id != null && !id.matcher(recipeId.toString()).find()) {
+                return false;
+            }
+
+            if (mod != null && !recipeId.getNamespace().equals(mod)) {
+                return false;
+            }
+
+            if (types != null && !matchesLoadedType(recipe)) {
+                return false;
+            }
+
+            if (group != null && !group.matcher(recipe.getGroup()).find()) {
+                return false;
+            }
+
+            if (outputs != null && !matchesAny(outputs,
+                itemIds(recipe.getResultItem(), namesTag(outputs)))) {
+                return false;
+            }
+
+            if (inputs == null) {
+                return true;
+            }
+
+            var found = new ArrayList<String>();
+            var wantsTags = namesTag(inputs);
+
+            for (var ingredient : recipe.getIngredients()) {
+                for (var stack : ingredient.getItems()) {
+                    found.addAll(itemIds(stack, wantsTags));
+                }
+            }
+
+            return matchesAny(inputs, found);
         }
 
-        return inputs == null || matchesAny(inputs, collectIngredients(object));
+        /**
+         * Whether a loaded recipe is one of the wanted types.
+         *
+         * <p>Two ids are tried, because {@code type} means one thing in a recipe file and another in
+         * a loaded recipe. What the file spells {@code minecraft:crafting_shaped} is a serialiser;
+         * the loaded recipe's {@code getType()} is {@code minecraft:crafting}, shared by every shape
+         * of crafting recipe there is. A filter written once has to mean the same thing on both
+         * sides, so the serialiser is checked first and the recipe type after it.
+         */
+        private boolean matchesLoadedType(net.minecraft.world.item.crafting.Recipe<?> recipe) {
+            var serializer =
+                net.minecraft.core.Registry.RECIPE_SERIALIZER.getKey(recipe.getSerializer());
+
+            if (serializer != null && types.contains(serializer.toString())) {
+                return true;
+            }
+
+            var type = net.minecraft.core.Registry.RECIPE_TYPE.getKey(recipe.getType());
+            return type != null && types.contains(type.toString());
+        }
+
+        @Override
+        public String toString() {
+            var parts = new ArrayList<String>();
+
+            if (id != null) {
+                parts.add("id=" + id);
+            }
+
+            if (mod != null) {
+                parts.add("mod=" + mod);
+            }
+
+            if (types != null) {
+                parts.add("type=" + types);
+            }
+
+            if (outputs != null) {
+                parts.add("output=" + outputs);
+            }
+
+            if (inputs != null) {
+                parts.add("input=" + inputs);
+            }
+
+            if (group != null) {
+                parts.add("group=" + group);
+            }
+
+            return String.join(", ", parts);
+        }
     }
 
+    /** The opposite of another filter. */
+    private static final class Not extends RecipeFilter {
+
+        private final RecipeFilter filter;
+
+        private Not(RecipeFilter filter) {
+            this.filter = filter;
+        }
+
+        @Override
+        public boolean test(ResourceLocation recipeId, JsonElement json) {
+            return !filter.test(recipeId, json);
+        }
+
+        @Override
+        public boolean test(net.minecraft.world.item.crafting.Recipe<?> recipe) {
+            return !filter.test(recipe);
+        }
+
+        @Override
+        public String toString() {
+            return "not(" + filter + ")";
+        }
+    }
+
+    /** Several filters, either all of which or any of which must match. */
+    private static final class Group extends RecipeFilter {
+
+        private final List<RecipeFilter> filters;
+
+        private final boolean all;
+
+        private Group(List<RecipeFilter> filters, boolean all) {
+            this.filters = filters;
+            this.all = all;
+        }
+
+        @Override
+        public boolean test(ResourceLocation recipeId, JsonElement json) {
+            for (var filter : filters) {
+                if (filter.test(recipeId, json) != all) {
+                    return !all;
+                }
+            }
+
+            return all;
+        }
+
+        @Override
+        public boolean test(net.minecraft.world.item.crafting.Recipe<?> recipe) {
+            for (var filter : filters) {
+                if (filter.test(recipe) != all) {
+                    return !all;
+                }
+            }
+
+            return all;
+        }
+
+        @Override
+        public String toString() {
+            return (all ? "and" : "or") + filters;
+        }
+    }
+
+    // --- reading the pieces --------------------------------------------------------------------
+
     /**
-     * Reports whether a recipe that has already been read matches.
+     * Reads a pattern from a wildcard string or a regular expression.
      *
-     * <p>The same conditions as {@link #test(ResourceLocation, JsonElement)}, asked of a loaded
-     * recipe rather than of its JSON. One thing differs and cannot be made not to: a tag written as
-     * {@code input: '#minecraft:planks'} is matched here against the items the tag expanded to,
-     * because by this point the ingredient no longer remembers it was written as a tag.
-     *
-     * @param recipe the loaded recipe
-     * @return {@code true} if every stated condition holds
+     * @param value the value a key held
+     * @return the pattern, or {@code null} if there was nothing there
      */
-    public boolean test(net.minecraft.world.item.crafting.Recipe<?> recipe) {
-        var recipeId = recipe.getId();
-
-        if (id != null && !id.matcher(recipeId.toString()).matches()) {
-            return false;
+    @Nullable
+    private static Pattern patternOf(@Nullable Object value) {
+        if (value instanceof Pattern pattern) {
+            return pattern;
         }
 
-        if (mod != null && !recipeId.getNamespace().equals(mod)) {
-            return false;
-        }
+        if (value instanceof Value v) {
+            var regex = regexOf(v);
 
-        if (types != null && !matchesLoadedType(recipe)) {
-            return false;
-        }
-
-        if (outputs != null && !matchesAny(outputs, itemIds(recipe.getResultItem()))) {
-            return false;
-        }
-
-        if (inputs == null) {
-            return true;
-        }
-
-        var found = new ArrayList<String>();
-
-        for (var ingredient : recipe.getIngredients()) {
-            for (var stack : ingredient.getItems()) {
-                found.addAll(itemIds(stack));
+            if (regex != null) {
+                return regex;
             }
         }
 
-        return matchesAny(inputs, found);
+        var text = ValueUtils.asString(value);
+        return text == null ? null : toPattern(text);
     }
 
     /**
-     * Whether a loaded recipe is one of the wanted types.
+     * Reads a guest regular expression, if that is what this is.
      *
-     * <p>Two ids are tried, because {@code type} means one thing in a recipe file and another in a
-     * loaded recipe. What the file spells {@code minecraft:crafting_shaped} is a serialiser; the
-     * loaded recipe's {@code getType()} is {@code minecraft:crafting}, shared by every shape of
-     * crafting recipe there is. A filter written once has to mean the same thing on both sides, so
-     * the serialiser is checked first and the recipe type after it.
+     * <p>Recognised by its members rather than by its class: a script's {@code /x/i} is a guest
+     * object, and the only thing that reliably distinguishes one is that it answers {@code source},
+     * {@code flags} and {@code exec}. A pack written for KubeJS passes these, so they have to work.
+     *
+     * @param value a guest value
+     * @return the compiled pattern, or {@code null} if the value is not a regular expression
      */
-    private boolean matchesLoadedType(net.minecraft.world.item.crafting.Recipe<?> recipe) {
-        var serializer =
-            net.minecraft.core.Registry.RECIPE_SERIALIZER.getKey(recipe.getSerializer());
-
-        if (serializer != null && types.contains(serializer.toString())) {
-            return true;
+    @Nullable
+    private static Pattern regexOf(Value value) {
+        if (value.isString() || !value.hasMembers()
+            || !value.hasMember("source") || !value.hasMember("exec")) {
+            return null;
         }
 
-        var type = net.minecraft.core.Registry.RECIPE_TYPE.getKey(recipe.getType());
-        return type != null && types.contains(type.toString());
+        var source = value.getMember("source");
+
+        if (source == null || !source.isString()) {
+            return null;
+        }
+
+        var flags = value.hasMember("flags") && value.getMember("flags").isString()
+            ? value.getMember("flags").asString() : "";
+
+        return compile(source.asString(), flags);
     }
 
-    /** The id of one stack's item, or nothing at all when the stack is empty. */
-    private static List<String> itemIds(net.minecraft.world.item.ItemStack stack) {
-        if (stack.isEmpty()) {
-            return List.of();
+    /**
+     * Reads a regular expression written as a string — {@code '/^minecraft:.*_slab$/i'}.
+     *
+     * <p>Needed because that is how a filter travels through JSON and through a variable a pack
+     * assembled by hand, and KubeJS accepts it everywhere it accepts a real {@code /x/}. Without
+     * this the text is taken literally, which matches no recipe at all and says nothing about
+     * why — the worst kind of incompatibility to debug.
+     *
+     * @param text the value a script passed
+     * @return the pattern, or {@code null} if the text is not in that form
+     */
+    @Nullable
+    private static Pattern parseRegex(String text) {
+        if (text.length() < 3 || text.charAt(0) != '/') {
+            return null;
         }
 
-        return List.of(String.valueOf(
-            net.minecraftforge.registries.ForgeRegistries.ITEMS.getKey(stack.getItem())));
+        var end = text.lastIndexOf('/');
+
+        if (end < 2) {
+            return null;
+        }
+
+        var flags = text.substring(end + 1);
+
+        // A trailing segment that is not flags means this was never a regular expression -- an id
+        // with slashes in it, most likely -- and it has to keep being read literally.
+        for (var i = 0; i < flags.length(); i++) {
+            if ("igmsuyd".indexOf(flags.charAt(i)) == -1) {
+                return null;
+            }
+        }
+
+        return compile(text.substring(1, end), flags);
+    }
+
+    /**
+     * Compiles a JavaScript pattern, keeping the flags that mean anything here.
+     *
+     * <p>{@code g}, {@code y} and their friends are about where a search resumes, and nothing here
+     * searches the same string twice.
+     *
+     * @return the pattern, or {@code null} if Java cannot read it
+     */
+    @Nullable
+    private static Pattern compile(String source, String flags) {
+        var bits = (flags.indexOf('i') == -1 ? 0 : Pattern.CASE_INSENSITIVE)
+            | (flags.indexOf('s') == -1 ? 0 : Pattern.DOTALL)
+            | (flags.indexOf('m') == -1 ? 0 : Pattern.MULTILINE);
+
+        try {
+            return Pattern.compile(source, bits);
+        } catch (java.util.regex.PatternSyntaxException ex) {
+            ConsoleJS.SERVER.error("Not a pattern Java understands: /" + source + "/"
+                + flags + " (" + ex.getDescription() + ")");
+            return null;
+        }
     }
 
     /** Whether any wanted id appears among the ids found in the recipe. */
@@ -242,6 +624,45 @@ public final class RecipeFilter {
         }
 
         return false;
+    }
+
+    /** Whether any wanted id is a tag, and so whether the items have to be asked for theirs. */
+    private static boolean namesTag(List<String> wanted) {
+        for (var w : wanted) {
+            if (w.startsWith("#")) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The ids one stack's item answers to, or nothing at all when the stack is empty.
+     *
+     * @param includeTags whether to add the tags the item is in, each written {@code #id}
+     */
+    private static List<String> itemIds(net.minecraft.world.item.ItemStack stack,
+                                        boolean includeTags) {
+        if (stack.isEmpty()) {
+            return List.of();
+        }
+
+        var id = String.valueOf(
+            net.minecraftforge.registries.ForgeRegistries.ITEMS.getKey(stack.getItem()));
+
+        if (!includeTags) {
+            return List.of(id);
+        }
+
+        // A loaded recipe holds items, not the text a file spelled them with, so a filter naming a
+        // tag has nothing to compare against unless the item is asked what it is in. Only when the
+        // filter does name one: this runs for every item of every ingredient of every recipe being
+        // tested, and asking each of them for its tags is not free.
+        var ids = new ArrayList<String>();
+        ids.add(id);
+        stack.getTags().forEach(tag -> ids.add("#" + tag.location()));
+        return ids;
     }
 
     /**
@@ -401,8 +822,20 @@ public final class RecipeFilter {
         return id.indexOf(':') == -1 ? "minecraft:" + id : id;
     }
 
-    /** Turns a {@code *} wildcard pattern into a regex, escaping everything else. */
+    /**
+     * Turns a {@code *} wildcard pattern into a regex, escaping everything else.
+     *
+     * <p>Anchored, so {@code 'minecraft:stick'} means that recipe and not every id containing it.
+     * A regular expression a script writes is not anchored, because that is how one behaves
+     * everywhere else in JavaScript.
+     */
     private static Pattern toPattern(String text) {
+        var regex = parseRegex(text);
+
+        if (regex != null) {
+            return regex;
+        }
+
         var builder = new StringBuilder();
 
         for (var part : text.split("\\*", -1)) {
@@ -413,7 +846,7 @@ public final class RecipeFilter {
             builder.append(Pattern.quote(part));
         }
 
-        return Pattern.compile(text.indexOf(':') == -1
-            ? "(minecraft:)?" + builder : builder.toString());
+        return Pattern.compile("^" + (text.indexOf(':') == -1
+            ? "(minecraft:)?" + builder : builder.toString()) + "$");
     }
 }

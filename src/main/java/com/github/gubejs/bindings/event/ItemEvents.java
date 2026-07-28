@@ -77,18 +77,6 @@ public interface ItemEvents {
     }
 
     /**
-     * A player right-clicking with the item in hand and nothing under the cursor.
-     *
-     * <p>{@code event.cancel()} stops the item doing whatever it normally would. A click aimed at
-     * a block goes to {@link #FIRST_RIGHT_CLICKED} instead, because the block gets first refusal.
-     */
-    /**
-     * Changes the properties of items that already exist — stack size, rarity, burn time.
-     *
-     * <p>Fires once while the game loads, after every mod has registered its items. A startup
-     * event, since the change is permanent and a reload cannot undo it.
-     */
-    /**
      * Where a pack invents a tool tier — {@code ItemEvents.toolTierRegistry(event => ...)}.
      *
      * <p>Fires before the first item is built, so a tier defined here can be named by
@@ -115,9 +103,21 @@ public interface ItemEvents {
     EventHandler MODEL_PROPERTIES = GROUP.startup("modelProperties",
         () -> com.github.gubejs.client.ItemModelPropertiesEventJS.class);
 
+    /**
+     * Changes the properties of items that already exist — stack size, rarity, burn time.
+     *
+     * <p>Fires once while the game loads, after every mod has registered its items. A startup
+     * event, since the change is permanent and a reload cannot undo it.
+     */
     EventHandler MODIFICATION = GROUP.startup("modification",
         () -> com.github.gubejs.item.ItemModificationEventJS.class);
 
+    /**
+     * A player right-clicking with the item in hand and nothing under the cursor.
+     *
+     * <p>{@code event.cancel()} stops the item doing whatever it normally would. A click aimed at
+     * a block goes to {@link #FIRST_RIGHT_CLICKED} instead, because the block gets first refusal.
+     */
     EventHandler RIGHT_CLICKED = GROUP.common("rightClicked", () -> ItemClickedEventJS.class)
         .extra(SUPPORTS_ITEM).hasResult();
 
@@ -160,6 +160,16 @@ public interface ItemEvents {
     /** A player finishing eating the item. {@code event.cancel()} undoes the effects. */
     EventHandler FOOD_EATEN = GROUP.common("foodEaten", () -> FoodEatenEventJS.class)
         .extra(SUPPORTS_ITEM).hasResult();
+
+    /**
+     * The item breaking in a player's hands.
+     *
+     * <p>For handing part of a broken tool back, or warning the player. Not cancellable: the game
+     * removes the item and then says so, and there is no earlier point that tells "broke" apart
+     * from "was damaged".
+     */
+    EventHandler DESTROYED = GROUP.common("destroyed",
+        () -> com.github.gubejs.item.ItemDestroyedEventJS.class).extra(SUPPORTS_ITEM);
 
     /**
      * The item's tooltip being built, on the client.

@@ -228,8 +228,25 @@ public final class ScriptManager {
     }
 
     private static boolean isScript(ResourceLocation id) {
-        var path = id.getPath();
-        return path.endsWith(".js") || path.endsWith(".ts") && !path.endsWith(".d.ts");
+        return isScriptName(id.getPath());
+    }
+
+    /**
+     * Whether a file name is one this loads.
+     *
+     * <p>{@code .mjs} counts. A file with that extension is a module wherever it sits — see
+     * {@link ScriptFileInfo#isModule()} — and leaving it out of the scan meant a script directory
+     * could hold one that was never loaded and never complained about, which is the worst of the
+     * three possible behaviours.
+     *
+     * <p>A {@code .d.ts} is declarations only and has nothing to run.
+     */
+    private static boolean isScriptName(String name) {
+        if (name.endsWith(".d.ts")) {
+            return false;
+        }
+
+        return name.endsWith(".js") || name.endsWith(".mjs") || name.endsWith(".ts");
     }
 
     private void collectScripts(ScriptPack pack, Path dir, String prefix) {
@@ -239,7 +256,7 @@ public final class ScriptManager {
             stream.filter(Files::isRegularFile).forEach(file -> {
                 var name = dir.relativize(file).toString().replace(File.separatorChar, '/');
 
-                if (name.endsWith(".js") || name.endsWith(".ts") && !name.endsWith(".d.ts")) {
+                if (isScriptName(name)) {
                     pack.info.scripts().add(new ScriptFileInfo(pack.info, pathPrefix + name));
                 }
             });

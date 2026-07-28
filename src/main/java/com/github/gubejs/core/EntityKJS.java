@@ -72,6 +72,13 @@ public interface EntityKJS {
      * <p>Not {@code getType()}: that is the game's own method and returns an {@code EntityType},
      * which is what a host method taking one still needs.
      *
+     * <p>Which is the one difference a ported script has to be told about, because nothing reports
+     * it: KubeJS puts this string on {@code entity.type}, and here that name still reaches the
+     * game's {@code getType()} and hands back the type object. So
+     * {@code entity.type === 'minecraft:zombie'} is false for a zombie, silently — the comparison
+     * has to become {@code entity.entityType === 'minecraft:zombie'}, or
+     * {@code entity.hasEntityTag(...)} where a tag will do.
+     *
      * @return the id
      */
     default String getEntityType() {
@@ -188,6 +195,99 @@ public interface EntityKJS {
     }
 
     /**
+     * Puts the entity into the world it belongs to.
+     *
+     * <p>The other half of {@code level.createEntity}: an entity that has been created exists as an
+     * object and nowhere else until something adds it, and a script that configured one and never
+     * called this is left wondering where its mob went.
+     *
+     * @return {@code true} if it was added, {@code false} if it was already in the world or this is
+     *     the client's copy of it
+     */
+    default boolean spawn() {
+        var entity = gjs$self();
+
+        if (entity.isAddedToWorld() || entity.level.isClientSide()) {
+            return false;
+        }
+
+        return entity.level.addFreshEntity(entity);
+    }
+
+    /**
+     * Hurts the entity.
+     *
+     * <p>The game needs a damage source for this and a script rarely has an opinion about which, so
+     * this one is generic — unblockable by armour, credited to nobody, and the same thing
+     * {@code /damage} does without arguments.
+     *
+     * @param amount how many half-hearts of damage
+     * @return {@code true} if the entity took the damage
+     */
+    default boolean attack(double amount) {
+        return gjs$self().hurt(net.minecraft.world.damagesource.DamageSource.GENERIC,
+            (float) amount);
+    }
+
+    /**
+     * Hurts the entity, saying what did it.
+     *
+     * @param source the damage source, or its name — {@code 'cactus'}, {@code 'lava'},
+     *     {@code 'out_of_world'}
+     * @param amount how many half-hearts of damage
+     * @return {@code true} if the entity took the damage
+     */
+    default boolean attack(Object source, double amount) {
+        return gjs$self().hurt(com.github.gubejs.bindings.DamageSourceWrapper.of(source),
+            (float) amount);
+    }
+
+    /**
+     * Moves the entity to another dimension.
+     *
+     * <p>Not the same call as moving it within one: crossing a dimension means the entity is removed
+     * from one level and a copy of it is put in the other, which is why the game gives it a method
+     * of its own and why the object a script is holding afterwards may not be the one in the world.
+     *
+     * @param dimension the dimension id, e.g. {@code minecraft:the_nether}
+     * @param x the new x
+     * @param y the new y
+     * @param z the new z
+     * @return the entity in the new dimension, or {@code null} if there is no such dimension or no
+     *     server to ask
+     */
+    @Nullable
+    default Entity teleportTo(String dimension, double x, double y, double z) {
+        var entity = gjs$self();
+        var server = entity.getServer();
+        var id = ResourceLocation.tryParse(dimension);
+
+        if (server == null || id == null) {
+            return null;
+        }
+
+        var level = server.getLevel(net.minecraft.resources.ResourceKey.create(
+            net.minecraft.core.Registry.DIMENSION_REGISTRY, id));
+
+        if (level == null) {
+            com.github.gubejs.util.ConsoleJS.getCurrent(com.github.gubejs.util.ConsoleJS.SERVER)
+                .warn("There is no dimension called '" + dimension + "'");
+            return null;
+        }
+
+        if (level == entity.level) {
+            entity.teleportTo(x, y, z);
+            return entity;
+        }
+
+        // Placed before the move, because changeDimension reads the entity's position to decide
+        // where the copy goes -- and for a player it is the only thing it reads.
+        entity.teleportTo(x, y, z);
+        var moved = entity.changeDimension(level);
+        return moved == null ? null : moved;
+    }
+
+    /**
      * Moves the entity and points it somewhere.
      *
      * @param x the new x
@@ -227,6 +327,45 @@ public interface EntityKJS {
         var motion = entity.getDeltaMovement();
         entity.setDeltaMovement(motion.x + x, motion.y + y, motion.z + z);
         entity.hasImpulse = true;
+    }
+
+    /**
+     * One component of how fast the entity is moving.
+     *
+     * <p>Separate accessors as well as {@link #setMotion}, because {@code entity.motionY = 0.5} is
+     * what a pack writes for a jump and reading it back is how it tests for a fall. Setting one
+     * component keeps the other two, which the three-argument form cannot express without the
+     * script reading them first.
+     *
+     * @return the x component, in blocks per tick
+     */
+    default double getMotionX() {
+        return gjs$self().getDeltaMovement().x;
+    }
+
+    default void setMotionX(double x) {
+        var motion = gjs$self().getDeltaMovement();
+        setMotion(x, motion.y, motion.z);
+    }
+
+    /** @return the y component, in blocks per tick */
+    default double getMotionY() {
+        return gjs$self().getDeltaMovement().y;
+    }
+
+    default void setMotionY(double y) {
+        var motion = gjs$self().getDeltaMovement();
+        setMotion(motion.x, y, motion.z);
+    }
+
+    /** @return the z component, in blocks per tick */
+    default double getMotionZ() {
+        return gjs$self().getDeltaMovement().z;
+    }
+
+    default void setMotionZ(double z) {
+        var motion = gjs$self().getDeltaMovement();
+        setMotion(motion.x, motion.y, z);
     }
 
     // --- looking at ----------------------------------------------------------------------------

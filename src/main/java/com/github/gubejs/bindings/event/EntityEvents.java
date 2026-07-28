@@ -81,4 +81,15 @@ public interface EntityEvents {
     /** A living entity taking damage. {@code event.cancel()} prevents it. */
     EventHandler HURT = GROUP.common("hurt", () -> LivingEntityHurtEventJS.class)
         .extra(SUPPORTS_ENTITY_TYPE).hasResult();
+
+    /**
+     * What a mob drops when it dies, while the list is still being assembled.
+     *
+     * <p>The flexible half of mob loot: a loot table says what drops, and this says what drops given
+     * how the mob died — {@code event.source}, {@code event.lootingLevel} and
+     * {@code event.recentlyHit} are all in scope. {@code event.cancel()} means no drops at all.
+     */
+    EventHandler DROPS = GROUP.common("drops",
+        () -> com.github.gubejs.entity.LivingEntityDropsEventJS.class)
+        .extra(SUPPORTS_ENTITY_TYPE).hasResult();
 }

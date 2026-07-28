@@ -65,11 +65,18 @@ public interface PlayerEvents {
         return id == null ? null : ForgeRegistries.MENU_TYPES.getValue(id);
     }
 
-    /** Fires when a player joins the server. */
-    EventHandler LOGGED_IN = GROUP.common("loggedIn", () -> PlayerEventJS.class);
+    /**
+     * Fires when a player joins the server.
+     *
+     * <p>Server-side only, because the Forge event behind it is: {@code PlayerLoggedInEvent} is
+     * never fired on a client. Declaring it {@code common} would let a client script register a
+     * listener that could never run, which is worse than the registration being refused — the
+     * refusal names {@code ClientEvents.loggedIn} as the one to use instead.
+     */
+    EventHandler LOGGED_IN = GROUP.server("loggedIn", () -> PlayerEventJS.class);
 
-    /** Fires when a player leaves. */
-    EventHandler LOGGED_OUT = GROUP.common("loggedOut", () -> PlayerEventJS.class);
+    /** Fires when a player leaves. Server-side only, for the reason {@link #LOGGED_IN} gives. */
+    EventHandler LOGGED_OUT = GROUP.server("loggedOut", () -> PlayerEventJS.class);
 
     /**
      * Fires every tick, for every player.

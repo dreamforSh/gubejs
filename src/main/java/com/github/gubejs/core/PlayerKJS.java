@@ -80,6 +80,19 @@ public interface PlayerKJS extends EntityKJS {
         return gjs$player().hasPermissions(level);
     }
 
+    /**
+     * Reports whether this is a machine pretending to be a player.
+     *
+     * <p>Mods break blocks, place them and craft through a fake player, so every player event a pack
+     * listens to fires for a quarry as well as for a person. A reward, a stage or a message meant for
+     * whoever did something has to ask this first, or a machine farms it in a loop.
+     *
+     * @return {@code true} for a fake player
+     */
+    default boolean isFake() {
+        return gjs$player() instanceof net.minecraftforge.common.util.FakePlayer;
+    }
+
     // --- items ---------------------------------------------------------------------------------
 
     /**
@@ -320,8 +333,10 @@ public interface PlayerKJS extends EntityKJS {
     /**
      * Returns the part of the player's data that survives death.
      *
-     * <p>{@code player.persistentData} is Forge's, and it is wiped when the player respawns —
-     * which is almost never what a pack wanted when it stored something there.
+     * <p>{@code player.persistentData} is Forge's, and Forge itself keeps only this one subtag of it
+     * across a respawn. The rest of it is carried over by this mod — see
+     * {@link com.github.gubejs.GubejsEventHandler#playerCloned} — so both work for storing
+     * something that has to outlive a death, and this one works even with that listener removed.
      *
      * @return the tag, created if it was not there
      */

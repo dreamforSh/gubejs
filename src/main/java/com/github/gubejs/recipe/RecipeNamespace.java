@@ -64,7 +64,7 @@ public final class RecipeNamespace implements ProxyObject {
     @Override
     public Object getMember(String key) {
         return functions.computeIfAbsent(key,
-            path -> new RecipeTypeFunction(event, new ResourceLocation(namespace, path)));
+            path -> new RecipeTypeFunction(event, new ResourceLocation(namespace, snakeCase(path))));
     }
 
     @Override
@@ -93,8 +93,11 @@ public final class RecipeNamespace implements ProxyObject {
     /**
      * Reports whether a name could be a recipe type at all.
      *
-     * <p>The character set is the one {@link ResourceLocation} accepts, which rules out every
-     * camel-cased probe an engine makes without needing to list them.
+     * <p>Capitals are accepted so that {@code event.recipes.minecraft.craftingShaped} reaches the
+     * same type as {@code crafting_shaped} — KubeJS mounts every recipe type under both spellings,
+     * and a pack copied from one uses whichever its author preferred. Everything else is the
+     * character set {@link ResourceLocation} accepts, which rules out the punctuated probes an
+     * engine makes without needing to list them.
      *
      * @param key the member name being looked up
      * @return {@code true} if a recipe type could be called that
@@ -107,13 +110,42 @@ public final class RecipeNamespace implements ProxyObject {
         for (var i = 0; i < key.length(); i++) {
             var c = key.charAt(i);
 
-            if (!(c >= 'a' && c <= 'z' || c >= '0' && c <= '9'
+            if (!(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
                 || c == '_' || c == '.' || c == '-' || c == '/')) {
                 return false;
             }
         }
 
         return true;
+    }
+
+    /**
+     * Turns {@code craftingShaped} into {@code crafting_shaped}.
+     *
+     * <p>A no-op for a name that is already lower case, which is the common case, so the camelCase
+     * spelling costs nothing to support.
+     *
+     * @param key the member name a script used
+     * @return the resource location path it names
+     */
+    static String snakeCase(String key) {
+        var builder = new StringBuilder(key.length() + 4);
+
+        for (var i = 0; i < key.length(); i++) {
+            var c = key.charAt(i);
+
+            if (c >= 'A' && c <= 'Z') {
+                if (i > 0) {
+                    builder.append('_');
+                }
+
+                builder.append(Character.toLowerCase(c));
+            } else {
+                builder.append(c);
+            }
+        }
+
+        return builder.toString();
     }
 
     /** The namespaces {@link #getMemberKeys} on the parent object reports. */

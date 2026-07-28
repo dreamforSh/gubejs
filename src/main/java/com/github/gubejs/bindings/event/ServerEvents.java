@@ -154,7 +154,22 @@ public interface ServerEvents {
      *
      * <p>Simpler than {@link #COMMAND_REGISTRY} when all a pack wants is a name to hang a function
      * on, and it survives a reload without a second {@code /reload} to rebuild the command tree.
+     *
+     * <p>The name is optional: a listener registered without one hears every custom command and
+     * reads {@code event.id} to tell them apart.
      */
     EventHandler CUSTOM_COMMAND = GROUP.server("customCommand", () -> CustomCommandEventJS.class)
-        .extra(Extra.REQUIRES_STRING).hasResult();
+        .extra(Extra.STRING).hasResult();
+
+    /**
+     * Marks recipe serialisers whose recipes cannot be edited — which is nothing here.
+     *
+     * <p>Registered so that a pack calling it is not stopped by {@code not a function}, and posted
+     * so that whatever it does inside still runs. It has nothing to do because this mod edits
+     * recipe JSON rather than deserialised recipes: a special recipe is
+     * {@code {"type": "minecraft:crafting_special_bookcloning"}} in a file and comes off exactly
+     * like any other. See {@link com.github.gubejs.recipe.SpecialRecipeSerializersEventJS}.
+     */
+    EventHandler SPECIAL_RECIPE_SERIALIZERS = GROUP.server("specialRecipeSerializers",
+        () -> com.github.gubejs.recipe.SpecialRecipeSerializersEventJS.class);
 }

@@ -72,6 +72,10 @@ public final class BlockCallbacks {
     @Nullable
     public Function<BlockCallbackEventJS, Object> canBeReplaced;
 
+    /** Called when the block is right-clicked; answers whether it handled the click. */
+    @Nullable
+    public Function<BlockCallbackEventJS, Object> rightClicked;
+
     /**
      * Which script type wrote these, so calling one enters the right context.
      *
@@ -141,6 +145,24 @@ public final class BlockCallbacks {
         claim();
     }
 
+    /**
+     * Runs a callback when a player right-clicks the block.
+     *
+     * <p>The click is taken as handled unless the callback returns {@code false} — a block given this
+     * is a block a script wants to answer for, and swinging the item in hand at it as well is almost
+     * never the intent. Returning {@code false} lets the block's own behaviour happen, which is what
+     * a callback that only wants to watch should do.
+     *
+     * <p>Fires on both sides. {@code event.level.isClientSide} tells them apart, and anything that
+     * changes the world has to happen on the server only.
+     *
+     * @param callback what to run
+     */
+    public void setRightClicked(@Nullable Function<BlockCallbackEventJS, Object> callback) {
+        rightClicked = callback;
+        claim();
+    }
+
     /** Remembers which script type is registering, while it is still running. */
     private void claim() {
         var current = com.github.gubejs.script.ScriptType.getCurrent();
@@ -152,7 +174,8 @@ public final class BlockCallbacks {
 
     /** Whether anything at all was set, so a block with none can skip the work of attaching them. */
     public boolean isEmpty() {
-        return randomTick == null && steppedOn == null && fallenOn == null && canBeReplaced == null;
+        return randomTick == null && steppedOn == null && fallenOn == null && canBeReplaced == null
+            && rightClicked == null;
     }
 
     /** Whether this block wants random ticks, which decides a property rather than a callback. */
@@ -235,6 +258,40 @@ public final class BlockCallbacks {
         }
 
         return answer instanceof Boolean decided ? decided : fallback;
+    }
+
+    /**
+     * Asks the right-click callback.
+     *
+     * @param level the level the block is in
+     * @param pos where the block is
+     * @param state the block's state
+     * @param player who clicked
+     * @return whether the click was handled, so the caller can stop the block's own behaviour
+     */
+    public boolean onRightClicked(Level level, BlockPos pos, BlockState state,
+                                  @Nullable Entity player) {
+        if (rightClicked == null) {
+            return false;
+        }
+
+        var event = new BlockCallbackEventJS(level, pos, state, player, 0F);
+        Object answer;
+
+        try {
+            answer = ValueUtils.unwrap(enter(() -> rightClicked.apply(event)));
+        } catch (Throwable ex) {
+            if (EventExit.unwrap(ex) != null) {
+                // event.cancel() means the script has decided and stopped; the click is its own.
+                return true;
+            }
+
+            rightClicked = null;
+            report(ex, "rightClick");
+            return false;
+        }
+
+        return !(answer instanceof Boolean decided) || decided;
     }
 
     /**

@@ -106,4 +106,45 @@ public final class RecipeCallbacks {
 
         return result == null ? original : result;
     }
+
+    /**
+     * Runs one callback that decides what a crafted ingredient leaves behind.
+     *
+     * <p>The same registry as {@link #apply}, because both are "a function a recipe carries a number
+     * for" and a second list would only mean two ways for a number to mean the wrong function.
+     *
+     * @param index the number the action carries
+     * @param stack what is in the slot
+     * @param original what the recipe would otherwise leave there
+     * @return what the callback returned, or {@code original} if this side has no such callback or
+     *     it failed
+     */
+    public static ItemStack applyRemainder(int index, ItemStack stack, ItemStack original) {
+        Value function;
+
+        synchronized (RecipeCallbacks.class) {
+            if (index < 0 || index >= FUNCTIONS.size()) {
+                return original;
+            }
+
+            function = FUNCTIONS.get(index);
+        }
+
+        var manager = ScriptType.SERVER.getManager();
+
+        if (manager == null) {
+            return original;
+        }
+
+        var result = manager.inContext(() -> {
+            try {
+                return ItemStackJS.of(function.execute(stack.copy(), original.copy()));
+            } catch (Throwable ex) {
+                ConsoleJS.SERVER.handleError(ex, "Error in a customIngredientAction callback");
+                return null;
+            }
+        });
+
+        return result == null ? original : result;
+    }
 }

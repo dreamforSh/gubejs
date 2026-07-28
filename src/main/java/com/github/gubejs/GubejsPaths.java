@@ -66,6 +66,9 @@ public interface GubejsPaths {
     /** Settings that only matter while developing a pack. */
     Path DEV_PROPERTIES = CONFIG.resolve("dev.properties");
 
+    /** Settings only a client reads — the window title and the rest of a pack's front door. */
+    Path CLIENT_PROPERTIES = CONFIG.resolve("client.properties");
+
     /** A short explanation of the directory layout, written on first run. */
     Path README = DIRECTORY.resolve("README.txt");
 

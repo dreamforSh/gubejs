@@ -29,6 +29,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraftforge.registries.ForgeRegistries;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * The questions a script asks an ingredient about itself.
@@ -145,5 +146,53 @@ public interface IngredientKJS {
         merged.addAll(getStacks());
         merged.addAll(List.of(other.getItems()));
         return Ingredient.of(merged.stream());
+    }
+
+    /**
+     * Returns an ingredient matching what this one does, minus what another matches.
+     *
+     * <pre>{@code
+     * Ingredient.of('#minecraft:planks').subtract('minecraft:crimson_planks')
+     * }</pre>
+     *
+     * <p>How a pack states an exception: "every plank but that one", "every ore this mod added
+     * except the one another mod already covers". Expanded to a fixed list of items rather than kept
+     * as a live difference, so the result is an ordinary vanilla ingredient that every recipe type
+     * and every recipe viewer understands — and so that a recipe written with it is a recipe file
+     * anybody can read.
+     *
+     * @param other what to leave out, as anything {@code Ingredient.of} accepts
+     * @return the narrowed ingredient, empty if nothing is left
+     */
+    default Ingredient subtract(@Nullable Object other) {
+        var excluded = com.github.gubejs.item.IngredientJS.of(other);
+        var kept = new ArrayList<ItemStack>();
+
+        for (var stack : gjs$self().getItems()) {
+            if (!stack.isEmpty() && !excluded.test(stack)) {
+                kept.add(stack);
+            }
+        }
+
+        return kept.isEmpty() ? Ingredient.EMPTY : Ingredient.of(kept.stream());
+    }
+
+    /**
+     * Returns an ingredient matching only what both this one and another match.
+     *
+     * @param other the other ingredient, as anything {@code Ingredient.of} accepts
+     * @return the intersection, empty if the two have nothing in common
+     */
+    default Ingredient and(@Nullable Object other) {
+        var required = com.github.gubejs.item.IngredientJS.of(other);
+        var kept = new ArrayList<ItemStack>();
+
+        for (var stack : gjs$self().getItems()) {
+            if (!stack.isEmpty() && required.test(stack)) {
+                kept.add(stack);
+            }
+        }
+
+        return kept.isEmpty() ? Ingredient.EMPTY : Ingredient.of(kept.stream());
     }
 }

@@ -95,6 +95,9 @@ public class FluidBuilder extends BuilderBase<Fluid> {
 
     protected int bucketColor = 0xFFFFFFFF;
 
+    /** Which of the game's render passes draws the fluid; see {@link #renderType}. */
+    protected String renderType = "solid";
+
     protected int luminosity = 0;
 
     protected int density = 1000;
@@ -201,6 +204,45 @@ public class FluidBuilder extends BuilderBase<Fluid> {
         return this;
     }
 
+    /**
+     * Sets which of the game's render passes draws the fluid.
+     *
+     * <p>The default, {@code solid}, throws away the alpha of both the texture and the tint — a
+     * fluid tinted {@code 0x80FFFFFF} in it is drawn as opaque as stone. Which pass a fluid belongs
+     * in is not something a texture or a fluid type can say, so it has to be set here; water itself
+     * is registered into the translucent pass by the game for exactly this reason.
+     *
+     * @param renderType one of {@code solid}, {@code cutout}, {@code cutout_mipped},
+     *     {@code translucent} or {@code tripwire}
+     * @return this builder
+     */
+    public FluidBuilder renderType(String renderType) {
+        this.renderType = renderType;
+        return this;
+    }
+
+    /**
+     * Draws the fluid in the pass that keeps partly transparent pixels partly transparent, the way
+     * water is drawn.
+     *
+     * <p>What any fluid whose tint carries an alpha wants, since a tint is only honoured to the
+     * extent the pass drawing it allows.
+     *
+     * @return this builder
+     */
+    public FluidBuilder translucent() {
+        return renderType("translucent");
+    }
+
+    /**
+     * Returns the render pass this fluid was asked for.
+     *
+     * @return the render type name
+     */
+    public String getRenderType() {
+        return renderType;
+    }
+
     // --- physics -------------------------------------------------------------------------------
 
     /**
@@ -289,11 +331,39 @@ public class FluidBuilder extends BuilderBase<Fluid> {
     /**
      * Sets which creative tab the bucket appears in.
      *
-     * @param tab the tab, or {@code null} to hide it
+     * @param tab the tab, its name — {@code 'misc'}, {@code 'kubejs'} — or {@code null} to hide it
      * @return this builder
      */
-    public FluidBuilder creativeTab(@Nullable CreativeModeTab tab) {
-        this.tab = tab;
+    public FluidBuilder creativeTab(@Nullable Object tab) {
+        this.tab = com.github.gubejs.item.CreativeTabs.find(tab);
+        return this;
+    }
+
+    /**
+     * Sets which creative tab the bucket appears in, under the name KubeJS packs use for it.
+     *
+     * @param tab the tab or its name
+     * @return this builder
+     */
+    public FluidBuilder group(@Nullable Object tab) {
+        return creativeTab(tab);
+    }
+
+    /**
+     * Puts the fluid in one or more tags.
+     *
+     * <p>Both fluids, not only the still one. A fluid is two registry entries and which of them a
+     * block holds depends on whether that block is a source or is spreading, so a tag on the still
+     * fluid alone is a tag that stops answering the moment the fluid moves — {@code #forge:milk}
+     * would match the pool a script placed and not the stream running out of it, and a recipe or an
+     * interaction testing the tag would work in one place and not the other.
+     *
+     * @param tags one or more tag ids, with or without a leading {@code #}
+     * @return this builder
+     */
+    @Override
+    public FluidBuilder tag(Object... tags) {
+        super.tag(tags);
         return this;
     }
 
@@ -322,6 +392,25 @@ public class FluidBuilder extends BuilderBase<Fluid> {
         if (hasBucket) {
             RegistryInfo.ITEM.getBuilders().add(bucketBuilder);
         }
+    }
+
+    /**
+     * Returns the fluid the game switches to while this one is spreading.
+     *
+     * @return the flowing fluid
+     */
+    public Fluid getFlowingFluid() {
+        return flowingBuilder.get();
+    }
+
+    /**
+     * Returns the block this fluid forms in the world.
+     *
+     * @return the block, or {@code null} when the script asked for none
+     */
+    @Nullable
+    public Block getFluidBlock() {
+        return hasBlock ? blockBuilder.get() : null;
     }
 
     /**
@@ -478,6 +567,13 @@ public class FluidBuilder extends BuilderBase<Fluid> {
         @Override
         public Fluid createObject() {
             return new ForgeFlowingFluid.Flowing(fluid.fluidProperties());
+        }
+
+        @Override
+        public java.util.Set<ResourceLocation> getTags() {
+            // The still fluid's, live rather than copied: the builder tags are applied on every
+            // datapack load, and a script may add one after this builder was queued.
+            return fluid.getTags();
         }
 
         @Override

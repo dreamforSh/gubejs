@@ -97,6 +97,12 @@ public final class GubejsTypeMappings implements TypeMappingProvider {
                 v -> new AABB(v.getArrayElement(0).asDouble(), v.getArrayElement(1).asDouble(),
                     v.getArrayElement(2).asDouble(), v.getArrayElement(3).asDouble(),
                     v.getArrayElement(4).asDouble(), v.getArrayElement(5).asDouble()));
+        } else if (objectType == net.minecraft.world.damagesource.DamageSource.class) {
+            // So that entity.hurt('cactus', 2) works: the game's damage kinds are static constants
+            // on a class a script has no reason to import.
+            fromString(registry, objectType,
+                com.github.gubejs.bindings.DamageSourceWrapper::looksLikeDamageSource,
+                com.github.gubejs.bindings.DamageSourceWrapper::of);
         } else if (objectType == UUID.class) {
             fromString(registry, objectType, GubejsTypeMappings::isUuid, UUID::fromString);
         } else if (objectType == JsonElement.class || objectType == JsonObject.class

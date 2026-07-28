@@ -193,6 +193,16 @@ public final class RecipeJson {
             json.addProperty("nbt", String.valueOf(stack.getTag()));
         }
 
+        if (withNbt) {
+            var chance = ((com.github.gubejs.core.ItemStackKJS) (Object) stack).gjs$getChance();
+
+            // Only when a script asked for one: a chance key on a vanilla result is ignored, but a
+            // key written on every output of every recipe is noise in every exported recipe file.
+            if (!Double.isNaN(chance)) {
+                json.addProperty("chance", chance);
+            }
+        }
+
         return json;
     }
 

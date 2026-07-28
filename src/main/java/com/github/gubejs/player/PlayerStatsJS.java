@@ -33,16 +33,21 @@ import net.minecraft.world.level.block.Block;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * The counters behind a player's statistics screen — {@code player.stats}.
+ * The counters behind a player's statistics screen — {@code player.statistics}.
  *
  * <pre>{@code
- * if (event.player.stats.get('minecraft:deaths') > 10) {
+ * if (event.player.statistics.get('minecraft:deaths') > 10) {
  *     event.player.stages.add('unlucky')
  * }
  *
- * event.player.stats.set('minecraft:jump', 0)
- * const stone = event.player.stats.getMined('minecraft:stone')
+ * event.player.statistics.set('minecraft:jump', 0)
+ * const stone = event.player.statistics.getMined('minecraft:stone')
  * }</pre>
+ *
+ * <p>{@code statistics} rather than KubeJS's {@code stats}, because {@code ServerPlayer} already has
+ * a {@code getStats()} of its own returning the raw counters — a method here with that name would
+ * lose to it and a script would get an object with none of these methods on it and no error. A
+ * pack being ported has to change that one word.
  *
  * <p>The plain {@code get}/{@code set}/{@code add} work on the custom statistics, which is the list
  * a pack means when it says "statistics" — deaths, jumps, time played, distance walked. The others

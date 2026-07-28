@@ -86,4 +86,18 @@ public final class IngredientWrapper {
     public static Ingredient ofTag(String tag) {
         return IngredientJS.parse(tag.startsWith("#") ? tag : "#" + tag);
     }
+
+    /**
+     * Returns an ingredient matching what the first one does, minus what the second matches.
+     *
+     * <p>The same as {@code Ingredient.of(a).subtract(b)}, for a script that reads better with the
+     * operation in front.
+     *
+     * @param from what to start from
+     * @param without what to leave out
+     * @return the narrowed ingredient
+     */
+    public static Ingredient subtract(@Nullable Object from, @Nullable Object without) {
+        return ((com.github.gubejs.core.IngredientKJS) IngredientJS.of(from)).subtract(without);
+    }
 }

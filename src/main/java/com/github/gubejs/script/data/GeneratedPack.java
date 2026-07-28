@@ -75,6 +75,58 @@ public final class GeneratedPack {
 
         addPack(event, GENERATED, "gubejs_generated", "Gubejs generated assets");
         addPack(event, GubejsPaths.DIRECTORY, "gubejs_pack", "Gubejs pack folder");
+        addZipPacks(event);
+    }
+
+    /**
+     * Adds each zip in {@code kubejs/data/} as a datapack and each in {@code kubejs/assets/} as a
+     * resource pack.
+     *
+     * <p>Dropping a zipped pack in there is how an integration pack ships a set of recipes or a
+     * texture set it did not write, and KubeJS mounts them, so a pack that relies on it would
+     * otherwise find its files simply not there — no error, no recipes.
+     *
+     * <p>Added after the pack folder, which leaves a zip below it: a loose file in
+     * {@code kubejs/data/} wins over the same path inside a zip, which is the order an author
+     * expects while editing one.
+     */
+    private static void addZipPacks(AddPackFindersEvent event) {
+        var root = GubejsPaths.get(event.getPackType());
+
+        if (Files.notExists(root)) {
+            return;
+        }
+
+        try (var files = Files.list(root)) {
+            for (var file : files.sorted().toList()) {
+                var name = file.getFileName().toString();
+
+                if (!Files.isRegularFile(file) || !name.endsWith(".zip")) {
+                    continue;
+                }
+
+                addZipPack(event, file, name);
+            }
+        } catch (IOException ex) {
+            Gubejs.LOGGER.error("Could not look for zipped packs in {}", root, ex);
+        }
+    }
+
+    private static void addZipPack(AddPackFindersEvent event, Path file, String name) {
+        var id = "gubejs_zip_" + name;
+
+        event.addRepositorySource((consumer, constructor) -> {
+            var pack = Pack.create(id, true, () -> new ZipPack(file.toFile(), name),
+                constructor, Pack.Position.BOTTOM, PackSource.DEFAULT);
+
+            if (pack != null) {
+                consumer.accept(pack);
+                Gubejs.LOGGER.info("Added {} as a {}", file, event.getPackType() == PackType.CLIENT_RESOURCES
+                    ? "resource pack" : "datapack");
+            } else {
+                Gubejs.LOGGER.warn("Could not add {} as a pack; is it a readable zip?", file);
+            }
+        });
     }
 
     private static void addPack(AddPackFindersEvent event, Path root, String id, String title) {
@@ -120,6 +172,12 @@ public final class GeneratedPack {
         // World generation is not a builder in a registry -- it is a datapack, written whole by
         // the WorldgenEvents listeners -- but it lands in the same generated pack.
         files.putAll(com.github.gubejs.worldgen.WorldgenFiles.getAll());
+
+        if (com.github.gubejs.item.CreativeTabs.hasOwn()) {
+            // Only when a pack asked for the tab: the key names a tab that does not exist
+            // otherwise, and an unused line in a language file is a line somebody has to explain.
+            translations.put("itemGroup.gubejs", "Gubejs");
+        }
 
         if (!translations.isEmpty()) {
             var byNamespace = new LinkedHashMap<String, Map<String, String>>();
@@ -186,19 +244,11 @@ public final class GeneratedPack {
      */
     private static final class DirectoryPack extends PathPackResources {
 
-        /** 1.19.2: resource packs are format 9, datapacks format 10. */
-        private static final int RESOURCE_FORMAT = 9;
-
-        private static final int DATA_FORMAT = 10;
-
         private final PackMetadataSection metadata;
 
         private DirectoryPack(String id, Path source, String description) {
             super(id, source);
-            this.metadata = new PackMetadataSection(Component.literal(description),
-                RESOURCE_FORMAT, Map.of(
-                    PackType.CLIENT_RESOURCES, RESOURCE_FORMAT,
-                    PackType.SERVER_DATA, DATA_FORMAT));
+            this.metadata = metadataOf(description);
         }
 
         @Override
@@ -207,23 +257,61 @@ public final class GeneratedPack {
                 return super.getMetadataSection(serializer);
             }
 
-            // Only the section a pack is required to have. Anything else -- a filter, an overlay --
-            // is genuinely absent rather than something to invent.
-            return PackMetadataSection.SERIALIZER.getMetadataSectionName()
-                .equals(serializer.getMetadataSectionName()) ? cast(metadata) : null;
+            return fallbackMetadata(serializer, metadata);
+        }
+    }
+
+    /**
+     * A zip served as a pack, with the same {@code pack.mcmeta} fallback as a directory.
+     *
+     * <p>A zip dropped into {@code kubejs/data/} usually has one, having been made as a datapack;
+     * one made by zipping the contents of a folder has not, and refusing it over a file that says
+     * nothing but a format number is not worth the confusion it causes.
+     */
+    private static final class ZipPack extends net.minecraft.server.packs.FilePackResources {
+
+        private final PackMetadataSection metadata;
+
+        private ZipPack(java.io.File file, String description) {
+            super(file);
+            this.metadata = metadataOf(description);
         }
 
-        /**
-         * Narrows the one section this supplies to the type the caller asked for.
-         *
-         * <p>The signature is generic in the section type and the check above is a string
-         * comparison on its name, which is the only thing the interface offers — no signature can
-         * prove to the compiler that the two agree.
-         */
-        @SuppressWarnings("unchecked")
-        private <T> T cast(PackMetadataSection section) {
-            return (T) section;
+        @Override
+        public <T> T getMetadataSection(MetadataSectionSerializer<T> serializer) throws IOException {
+            if (hasResource("pack.mcmeta")) {
+                return super.getMetadataSection(serializer);
+            }
+
+            return fallbackMetadata(serializer, metadata);
         }
+    }
+
+    /** 1.19.2: resource packs are format 9, datapacks format 10. */
+    private static final int RESOURCE_FORMAT = 9;
+
+    private static final int DATA_FORMAT = 10;
+
+    private static PackMetadataSection metadataOf(String description) {
+        return new PackMetadataSection(Component.literal(description), RESOURCE_FORMAT, Map.of(
+            PackType.CLIENT_RESOURCES, RESOURCE_FORMAT,
+            PackType.SERVER_DATA, DATA_FORMAT));
+    }
+
+    /**
+     * Answers with the one section a pack is required to have, for a pack that has no file saying
+     * so.
+     *
+     * <p>Anything else a caller asks for — a filter, an overlay — is genuinely absent rather than
+     * something to invent. The cast is unchecked because the signature is generic in the section
+     * type while the check is a string comparison on its name, which is the only thing the
+     * interface offers; no signature can prove to the compiler that the two agree.
+     */
+    @SuppressWarnings("unchecked")
+    private static <T> T fallbackMetadata(MetadataSectionSerializer<T> serializer,
+                                          PackMetadataSection section) {
+        return PackMetadataSection.SERIALIZER.getMetadataSectionName()
+            .equals(serializer.getMetadataSectionName()) ? (T) section : null;
     }
 
     private static void deleteRecursively(Path root) throws Exception {

@@ -23,7 +23,11 @@ package com.github.gubejs.bindings;
 
 import com.github.gubejs.Gubejs;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.loading.FMLEnvironment;
@@ -40,6 +44,23 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class PlatformWrapper {
 
+    /**
+     * Display names {@link #setModName} has replaced, by mod id.
+     *
+     * <p>Kept here rather than written back into Forge's metadata, which is shared with every
+     * other mod that reads it and is not this pack's to change.
+     */
+    private static final Map<String, String> MOD_NAMES = new ConcurrentHashMap<>();
+
+    /**
+     * The answer to {@link #getMods()}, built once.
+     *
+     * <p>Worth caching because the installed mods cannot change while the game runs and a pack
+     * reads this in a loop. Cleared by {@link #setModName} rather than kept in step with it, so
+     * the objects a script holds never disagree with the overrides.
+     */
+    private static volatile Map<String, ModInfo> mods;
+
     private PlatformWrapper() {
     }
 
@@ -51,6 +72,33 @@ public final class PlatformWrapper {
      */
     public static String getName() {
         return "forge";
+    }
+
+    /**
+     * Returns the mod loader's name, under the name KubeJS gives it.
+     *
+     * @return the same {@code "forge"} {@link #getName()} answers
+     */
+    public static String getModLoader() {
+        return getName();
+    }
+
+    /**
+     * Reports whether this is Forge.
+     *
+     * @return always {@code true} here
+     */
+    public static boolean isForge() {
+        return true;
+    }
+
+    /**
+     * Reports whether this is Fabric.
+     *
+     * @return always {@code false} here; a pack shared between loaders still asks
+     */
+    public static boolean isFabric() {
+        return false;
     }
 
     /**
@@ -80,10 +128,64 @@ public final class PlatformWrapper {
      *
      * @return the ids
      */
-    public static List<String> getMods() {
+    public static List<String> getModIds() {
         var ids = new ArrayList<String>();
         ModList.get().forEachModContainer((id, container) -> ids.add(id));
         return ids;
+    }
+
+    /**
+     * Returns every installed mod, by id.
+     *
+     * <pre>{@code
+     * const create = Platform.mods.create
+     * if (create) { console.info(`Create ${create.version} is installed`) }
+     * }</pre>
+     *
+     * <p>A map rather than a list of ids because that is what a pack indexes —
+     * {@code Platform.mods['create'].name} — and the ids alone are {@link #getModIds()}.
+     *
+     * @return the mods, in load order, unmodifiable
+     */
+    public static Map<String, ModInfo> getMods() {
+        var current = mods;
+
+        if (current == null) {
+            current = collectMods();
+            mods = current;
+        }
+
+        return current;
+    }
+
+    /**
+     * Replaces a mod's display name.
+     *
+     * <p>For a pack that builds a list of its dependencies out of {@link #getMods()} and wants
+     * them named the way it names them elsewhere. Only the objects this class hands out change;
+     * Forge's own metadata, and therefore every other mod's idea of the name, is left alone.
+     *
+     * @param modId the mod id
+     * @param name the name to answer instead of the one in the mod's metadata
+     */
+    public static void setModName(String modId, String name) {
+        MOD_NAMES.put(modId, name);
+        mods = null;
+    }
+
+    private static Map<String, ModInfo> collectMods() {
+        var byId = new LinkedHashMap<String, ModInfo>();
+
+        for (var info : ModList.get().getMods()) {
+            var id = info.getModId();
+            var name = MOD_NAMES.getOrDefault(id, info.getDisplayName());
+            var description = info.getDescription();
+
+            byId.put(id, new ModInfo(id, name == null || name.isEmpty() ? id : name,
+                info.getVersion().toString(), description == null ? "" : description));
+        }
+
+        return Collections.unmodifiableMap(byId);
     }
 
     /** Whether this side is a physical client. */
@@ -119,5 +221,83 @@ public final class PlatformWrapper {
     /** This mod's version. */
     public static String getGubejsVersion() {
         return getVersion(Gubejs.MOD_ID);
+    }
+
+    /**
+     * One installed mod, as an entry of {@link #getMods()}.
+     *
+     * <p>A snapshot of Forge's metadata rather than a view onto it, because the display name a
+     * pack sees can have been replaced by {@link #setModName} and Forge's {@code IModInfo} has
+     * nowhere to put that.
+     *
+     * <p>Both fields and getters, since a pack written for KubeJS reads {@code mod.name} while one
+     * written against Java reads {@code mod.getName()}.
+     */
+    public static final class ModInfo {
+
+        /** The mod id, e.g. {@code create}. */
+        public final String id;
+
+        /** The display name, falling back to the id when the metadata carries none. */
+        public final String name;
+
+        /** The version, as the mod's metadata spells it. */
+        public final String version;
+
+        /** The description from the mod's metadata, empty when it has none. */
+        public final String description;
+
+        private ModInfo(String id, String name, String version, String description) {
+            this.id = id;
+            this.name = name;
+            this.version = version;
+            this.description = description;
+        }
+
+        /**
+         * Returns the mod id.
+         *
+         * @return the id
+         */
+        public String getId() {
+            return id;
+        }
+
+        /**
+         * Returns the display name.
+         *
+         * @return the name, or the id if the mod's metadata has none
+         */
+        public String getName() {
+            return name;
+        }
+
+        /**
+         * Returns the version.
+         *
+         * @return the version string
+         */
+        public String getVersion() {
+            return version;
+        }
+
+        /**
+         * Returns the description.
+         *
+         * @return the description, empty when the mod has none
+         */
+        public String getDescription() {
+            return description;
+        }
+
+        /**
+         * Describes this mod for a log line.
+         *
+         * @return the id and version, so printing one is readable rather than an object address
+         */
+        @Override
+        public String toString() {
+            return id + " " + version;
+        }
     }
 }

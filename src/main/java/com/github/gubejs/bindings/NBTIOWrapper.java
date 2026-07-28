@@ -48,7 +48,12 @@ public final class NBTIOWrapper {
     }
 
     /**
-     * Reads an uncompressed NBT file.
+     * Reads an NBT file, gzipped or not.
+     *
+     * <p>Which one is worked out from the file rather than from the method that was called. Every
+     * {@code .nbt} the game itself writes — structures, player data, level data — is gzipped, and a
+     * script reading one with a method that assumed otherwise got {@code null} and no explanation.
+     * The two bytes that say so are unambiguous, so there is no reason to make a pack author know.
      *
      * @param path a path inside the pack directory
      * @return the tag, or {@code null} if the file is missing or unreadable
@@ -61,8 +66,8 @@ public final class NBTIOWrapper {
             return null;
         }
 
-        try (var in = Files.newInputStream(file)) {
-            return NbtIo.read(new java.io.DataInputStream(in), NbtAccounter.UNLIMITED);
+        try {
+            return isGzipped(file) ? readCompressed(file) : readRaw(file);
         } catch (IOException ex) {
             ConsoleJS.getCurrent(ConsoleJS.STARTUP).error("Could not read " + path, ex);
             return null;
@@ -70,21 +75,35 @@ public final class NBTIOWrapper {
     }
 
     /**
-     * Reads a gzipped NBT file, which is what the game writes its own data as.
+     * Reads a gzipped NBT file.
+     *
+     * <p>The same as {@link #read} in every case that works: it is here because KubeJS has it, and
+     * a pack that spells out which form it expects should not have to change.
      *
      * @param path a path inside the pack directory
      * @return the tag, or {@code null} if the file is missing or unreadable
      */
     @Nullable
     public static CompoundTag readCompressed(String path) {
+        return read(path);
+    }
+
+    /**
+     * Reads an NBT file that is definitely not compressed.
+     *
+     * @param path a path inside the pack directory
+     * @return the tag, or {@code null} if the file is missing or unreadable
+     */
+    @Nullable
+    public static CompoundTag readUncompressed(String path) {
         var file = resolve(path);
 
         if (file == null || Files.notExists(file)) {
             return null;
         }
 
-        try (var in = Files.newInputStream(file)) {
-            return NbtIo.readCompressed(in);
+        try {
+            return readRaw(file);
         } catch (IOException ex) {
             ConsoleJS.getCurrent(ConsoleJS.STARTUP).error("Could not read " + path, ex);
             return null;
@@ -92,13 +111,56 @@ public final class NBTIOWrapper {
     }
 
     /**
-     * Writes an uncompressed NBT file, creating parent directories as needed.
+     * Writes a gzipped NBT file, creating parent directories as needed.
+     *
+     * <p>Gzipped because that is what the game writes and what KubeJS writes, so a file written
+     * here is one anything else will read. {@link #writeUncompressed} is there for the pack that
+     * wants to look at the bytes.
      *
      * @param path a path inside the pack directory
      * @param value the tag, or an object to convert into one
      * @return {@code true} if the file was written
      */
     public static boolean write(String path, @Nullable Object value) {
+        var file = resolve(path);
+
+        if (file == null) {
+            return false;
+        }
+
+        try {
+            createParent(file);
+
+            try (var out = Files.newOutputStream(file)) {
+                NbtIo.writeCompressed(NbtHelper.compound(value), out);
+            }
+
+            return true;
+        } catch (IOException ex) {
+            ConsoleJS.getCurrent(ConsoleJS.STARTUP).error("Could not write " + path, ex);
+            return false;
+        }
+    }
+
+    /**
+     * Writes a gzipped NBT file, creating parent directories as needed.
+     *
+     * @param path a path inside the pack directory
+     * @param value the tag, or an object to convert into one
+     * @return {@code true} if the file was written
+     */
+    public static boolean writeCompressed(String path, @Nullable Object value) {
+        return write(path, value);
+    }
+
+    /**
+     * Writes an NBT file with no compression, creating parent directories as needed.
+     *
+     * @param path a path inside the pack directory
+     * @param value the tag, or an object to convert into one
+     * @return {@code true} if the file was written
+     */
+    public static boolean writeUncompressed(String path, @Nullable Object value) {
         var file = resolve(path);
 
         if (file == null) {
@@ -119,31 +181,23 @@ public final class NBTIOWrapper {
         }
     }
 
-    /**
-     * Writes a gzipped NBT file, creating parent directories as needed.
-     *
-     * @param path a path inside the pack directory
-     * @param value the tag, or an object to convert into one
-     * @return {@code true} if the file was written
-     */
-    public static boolean writeCompressed(String path, @Nullable Object value) {
-        var file = resolve(path);
-
-        if (file == null) {
-            return false;
+    private static CompoundTag readRaw(Path file) throws IOException {
+        try (var in = Files.newInputStream(file)) {
+            return NbtIo.read(new java.io.DataInputStream(in), NbtAccounter.UNLIMITED);
         }
+    }
 
-        try {
-            createParent(file);
+    private static CompoundTag readCompressed(Path file) throws IOException {
+        try (var in = Files.newInputStream(file)) {
+            return NbtIo.readCompressed(in);
+        }
+    }
 
-            try (var out = Files.newOutputStream(file)) {
-                NbtIo.writeCompressed(NbtHelper.compound(value), out);
-            }
-
-            return true;
-        } catch (IOException ex) {
-            ConsoleJS.getCurrent(ConsoleJS.STARTUP).error("Could not write " + path, ex);
-            return false;
+    /** The two bytes every gzip stream starts with. */
+    private static boolean isGzipped(Path file) throws IOException {
+        try (var in = Files.newInputStream(file)) {
+            var header = new byte[2];
+            return in.read(header) == 2 && (header[0] & 0xFF) == 0x1F && (header[1] & 0xFF) == 0x8B;
         }
     }
 

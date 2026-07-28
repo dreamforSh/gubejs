@@ -48,11 +48,16 @@ public final class LootBuilderEntry
     /**
      * Sets what this entry names — an item id, a table id, or a tag.
      *
-     * @param name the id
+     * <p>Called {@code id} rather than {@code name} because on a loot entry {@code name(...)} means
+     * something else everywhere a pack was written: it is the rename function, the one that makes a
+     * drop come out called "Ancient Blade". The pool's {@code addItem} and friends set this
+     * already, so a script rarely says it at all.
+     *
+     * @param id the id
      * @return this entry
      */
-    public LootBuilderEntry name(Object name) {
-        json.addProperty("name", String.valueOf(ValueUtils.unwrap(name)));
+    public LootBuilderEntry id(Object id) {
+        json.addProperty("name", String.valueOf(ValueUtils.unwrap(id)));
         return this;
     }
 
@@ -93,27 +98,28 @@ public final class LootBuilderEntry
         return this;
     }
 
+    /*
+     * Both arrays are attached the moment they gain an entry, rather than in toJson(). The pool
+     * puts an entry into the table as soon as it is created and hands it back for chaining, so a
+     * key attached later than that -- when pool.addItem('x').count(2) runs -- would be attached to
+     * an object nothing is reading any more, and the function would silently not happen.
+     */
+
     @Override
     public LootBuilderEntry addCondition(Object condition) {
         conditions.add(JsonUtils.objectOf(condition));
+        json.add("conditions", conditions);
         return this;
     }
 
     @Override
     public LootBuilderEntry addFunction(Object function) {
         functions.add(JsonUtils.objectOf(function));
+        json.add("functions", functions);
         return this;
     }
 
     JsonObject toJson() {
-        if (conditions.size() > 0) {
-            json.add("conditions", conditions);
-        }
-
-        if (functions.size() > 0) {
-            json.add("functions", functions);
-        }
-
         return json;
     }
 }

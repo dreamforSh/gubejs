@@ -80,6 +80,8 @@ public final class GubejsClient {
         // there would have a dedicated server try to load it.
         modBus.addListener(VirtualAssetPack::register);
         modBus.addListener(GubejsClient::stitchAtlas);
+        modBus.addListener(GubejsClient::registerBlockColors);
+        modBus.addListener(GubejsClient::registerItemColors);
         MinecraftForge.EVENT_BUS.register(GubejsClient.class);
         GubejsPlugins.forEachPlugin(GubejsPlugin::clientInit);
     }
@@ -146,6 +148,22 @@ public final class GubejsClient {
         }
 
         event.enqueueWork(GubejsClient::registerRenderTypes);
+        event.enqueueWork(GubejsClient::applyWindowTitle);
+    }
+
+    /**
+     * Renames the game window to what {@code client.properties} asked for.
+     *
+     * <p>Set once here and again after each resource reload, because the game rewrites the title
+     * itself whenever the world it is showing changes — a title set only at startup lasts until the
+     * player joins a world and then quietly reverts.
+     */
+    private static void applyWindowTitle() {
+        var title = ClientProperties.get().title;
+
+        if (!title.isEmpty()) {
+            net.minecraft.client.Minecraft.getInstance().getWindow().setTitle(title);
+        }
     }
 
     /**
@@ -168,6 +186,72 @@ public final class GubejsClient {
                 net.minecraft.client.renderer.ItemBlockRenderTypes.setRenderLayer(
                     blockBuilder.get(), type);
             }
+        }
+
+        for (var builder : com.github.gubejs.registry.RegistryInfo.FLUID.getBuilders()) {
+            if (!(builder instanceof com.github.gubejs.fluid.FluidBuilder fluidBuilder)) {
+                continue;
+            }
+
+            var type = renderTypeOf(fluidBuilder.getRenderType());
+
+            if (type == null) {
+                continue;
+            }
+
+            // Both fluids and the block: the renderer keeps a pass per fluid and a pass per block,
+            // looks the fluid one up from whichever of the two a section holds, and would draw a
+            // still pool translucent and the stream out of it opaque if only one were registered.
+            net.minecraft.client.renderer.ItemBlockRenderTypes.setRenderLayer(
+                fluidBuilder.get(), type);
+            net.minecraft.client.renderer.ItemBlockRenderTypes.setRenderLayer(
+                fluidBuilder.getFlowingFluid(), type);
+            var block = fluidBuilder.getFluidBlock();
+
+            if (block != null) {
+                net.minecraft.client.renderer.ItemBlockRenderTypes.setRenderLayer(block, type);
+            }
+        }
+    }
+
+    /**
+     * Applies the tints a script set on the blocks it created.
+     *
+     * <p>A model's face asks for a tint by index and gets white when nothing answers, which is why a
+     * greyscale texture comes out grey without this.
+     *
+     * @param event Forge's block colour registration
+     */
+    private static void registerBlockColors(
+        net.minecraftforge.client.event.RegisterColorHandlersEvent.Block event) {
+        for (var builder : com.github.gubejs.registry.RegistryInfo.BLOCK.getBuilders()) {
+            if (!(builder instanceof com.github.gubejs.block.BlockBuilder blockBuilder)
+                || blockBuilder.getTints().isEmpty()) {
+                continue;
+            }
+
+            var tints = blockBuilder.getTints();
+            event.register((state, level, pos, index) -> tints.getOrDefault(index, 0xFFFFFF),
+                blockBuilder.get());
+        }
+    }
+
+    /**
+     * Applies the same tints to the block items, so the one in the hotbar matches the one placed.
+     *
+     * @param event Forge's item colour registration
+     */
+    private static void registerItemColors(
+        net.minecraftforge.client.event.RegisterColorHandlersEvent.Item event) {
+        for (var builder : com.github.gubejs.registry.RegistryInfo.BLOCK.getBuilders()) {
+            if (!(builder instanceof com.github.gubejs.block.BlockBuilder blockBuilder)
+                || blockBuilder.getTints().isEmpty() || !blockBuilder.hasItem()) {
+                continue;
+            }
+
+            var tints = blockBuilder.getTints();
+            event.register((stack, index) -> tints.getOrDefault(index, 0xFFFFFF),
+                blockBuilder.get().asItem());
         }
     }
 
@@ -302,18 +386,64 @@ public final class GubejsClient {
      */
     @SubscribeEvent
     public static void itemTooltip(ItemTooltipEvent event) {
+        var stack = event.getItemStack();
+
+        if (ClientProperties.get().shouldShowTagNames(event.getFlags().isAdvanced())) {
+            appendTagNames(stack, event.getToolTip());
+        }
+
         if (!ItemEvents.TOOLTIP.hasListeners()) {
             return;
         }
-
-        var stack = event.getItemStack();
 
         ItemEvents.TOOLTIP.post(ScriptType.CLIENT, stack.getItem(), new ItemTooltipEventJS(
             stack, event.getToolTip(), event.getFlags().isAdvanced()));
     }
 
+    /**
+     * Lists the tags an item is in, under its tooltip.
+     *
+     * <p>The question a pack author asks most often while writing recipes, and the game has no way to
+     * answer it in the inventory. Off unless {@code client.properties} asks, since a player wants a
+     * tooltip and not a report.
+     */
+    private static void appendTagNames(net.minecraft.world.item.ItemStack stack,
+                                       java.util.List<net.minecraft.network.chat.Component> lines) {
+        stack.getTags().forEach(tag -> lines.add(
+            net.minecraft.network.chat.Component.literal("#" + tag.location())
+                .withStyle(net.minecraft.ChatFormatting.DARK_GRAY)));
+    }
+
+    /**
+     * Takes the recipe book button out of a screen that has one.
+     *
+     * <p>Only the button: the screen belongs to vanilla and the keybind still works, so a pack that
+     * has replaced crafting hides the entry point without this mod rearranging somebody else's
+     * layout. Recognised by the screen rather than by the widget's class, since a mod's own button on
+     * the same screen is not this one.
+     *
+     * @param event Forge's screen initialisation event
+     */
+    @SubscribeEvent
+    public static void screenInit(net.minecraftforge.client.event.ScreenEvent.Init.Post event) {
+        if (!ClientProperties.get().disableRecipeBook
+            || !(event.getScreen() instanceof net.minecraft.client.gui.screens.recipebook
+            .RecipeUpdateListener)) {
+            return;
+        }
+
+        // Over a copy: removing goes through the same list this is walking.
+        for (var widget : java.util.List.copyOf(event.getListenersList())) {
+            if (widget instanceof net.minecraft.client.gui.components.ImageButton button) {
+                event.removeListener(button);
+            }
+        }
+    }
+
     @SubscribeEvent
     public static void loggedIn(ClientPlayerNetworkEvent.LoggingIn event) {
+        applyWindowTitle();
+
         if (ClientEvents.LOGGED_IN.hasListeners()) {
             ClientEvents.LOGGED_IN.post(ScriptType.CLIENT, new ClientEventJS());
         }

@@ -110,4 +110,25 @@ public abstract class BlockBehaviourMixin implements BlockKJS {
         callback.setReturnValue(gubejs$callbacks.onCanBeReplaced(context.getLevel(),
             context.getClickedPos(), state, context.getPlayer(), fallback));
     }
+
+    /**
+     * Lets a script's {@code rightClick} callback answer a click on the block.
+     *
+     * <p>{@code CONSUME} rather than {@code SUCCESS}, because the arm swing belongs to the item and
+     * this click was the block's: a block that opened something does not make the player wave.
+     */
+    @Inject(method = "use", at = @At("HEAD"), cancellable = true)
+    private void gubejs$use(BlockState state, net.minecraft.world.level.Level level, BlockPos pos,
+                            net.minecraft.world.entity.player.Player player,
+                            net.minecraft.world.InteractionHand hand,
+                            net.minecraft.world.phys.BlockHitResult hit,
+                            CallbackInfoReturnable<net.minecraft.world.InteractionResult> callback) {
+        if (gubejs$callbacks == null || gubejs$callbacks.rightClicked == null) {
+            return;
+        }
+
+        if (gubejs$callbacks.onRightClicked(level, pos, state, player)) {
+            callback.setReturnValue(net.minecraft.world.InteractionResult.CONSUME);
+        }
+    }
 }

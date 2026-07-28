@@ -68,6 +68,14 @@ public abstract class RecipeManagerMixin {
         // load. Idempotent, so it does not matter whether tags got here first.
         ServerScriptManager.ensureLoaded(resourceManager);
 
+        // Before the recipes event, which is where KubeJS fires it, so a pack that names special
+        // serialisers there does it before anything reads recipes -- even though nothing here
+        // consults the result. See SpecialRecipeSerializersEventJS.
+        if (ServerEvents.SPECIAL_RECIPE_SERIALIZERS.hasListeners()) {
+            ServerEvents.SPECIAL_RECIPE_SERIALIZERS.post(ScriptType.SERVER,
+                new com.github.gubejs.recipe.SpecialRecipeSerializersEventJS());
+        }
+
         if (ServerEvents.RECIPES.hasListeners()) {
             ServerEvents.RECIPES.post(ScriptType.SERVER, null, new RecipesEventJS(map));
         }

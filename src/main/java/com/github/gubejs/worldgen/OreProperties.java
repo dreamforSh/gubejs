@@ -27,6 +27,7 @@ import com.github.gubejs.util.ValueUtils;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import java.util.List;
+import java.util.Map;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.registries.ForgeRegistries;
 import org.jetbrains.annotations.Nullable;
@@ -47,8 +48,14 @@ public class OreProperties {
     /** The blocks the vein is made of, as block state JSON. */
     public final JsonArray targets = new JsonArray();
 
-    /** How many veins are tried per chunk. */
+    /** How many veins are tried per chunk, or the low end of that when {@link #countMax} is set. */
     public int count = 8;
+
+    /** The high end of the vein count; anything not above {@link #count} means an exact count. */
+    public int countMax;
+
+    /** One chunk in this many gets the ore at all, or 0 to use {@link #count} instead. */
+    public int chance;
 
     /** How many blocks are in one vein, at most. */
     public int size = 8;
@@ -59,8 +66,17 @@ public class OreProperties {
     /** The highest y a vein may start at. */
     public int maxHeight = 128;
 
+    /** Whether heights in the range are biased towards the middle rather than spread evenly. */
+    public boolean triangle;
+
     /** How often a block touching air is skipped, which is what keeps ore out of cave walls. */
     public float discardChanceOnAirExposure;
+
+    @Nullable
+    private JsonObject minAnchor;
+
+    @Nullable
+    private JsonObject maxAnchor;
 
     /** Which biomes get it. */
     @Nullable
@@ -112,6 +128,40 @@ public class OreProperties {
      */
     public void setCount(int count) {
         this.count = count;
+        this.countMax = 0;
+    }
+
+    /**
+     * Sets how many veins are tried per chunk, as a range.
+     *
+     * @param min the fewest
+     * @param max the most
+     */
+    public void setCount(int min, int max) {
+        this.count = min;
+        this.countMax = max;
+    }
+
+    /**
+     * Sets the high end of the vein count on its own.
+     *
+     * @param countMax the most veins per chunk
+     */
+    public void setCountMax(int countMax) {
+        this.countMax = countMax;
+    }
+
+    /**
+     * Sets how rare the ore is, as one chunk in every {@code chance}.
+     *
+     * <p>An alternative to the count rather than an addition to it: a chunk that wins the roll gets
+     * a single vein, which is how vanilla writes the things there is only ever one of — an
+     * amethyst geode is one chunk in 24. Set both and the count is ignored.
+     *
+     * @param chance the number of chunks one vein is worth
+     */
+    public void setChance(int chance) {
+        this.chance = chance;
     }
 
     /**
@@ -130,6 +180,7 @@ public class OreProperties {
      */
     public void setMinHeight(int minHeight) {
         this.minHeight = minHeight;
+        this.minAnchor = null;
     }
 
     /**
@@ -139,6 +190,50 @@ public class OreProperties {
      */
     public void setMaxHeight(int maxHeight) {
         this.maxHeight = maxHeight;
+        this.maxAnchor = null;
+    }
+
+    /**
+     * Sets the height range, spread evenly between the two ends.
+     *
+     * <p>Takes the same anchors vanilla does, so a distribution copied out of the game reads the
+     * same here: a number is an absolute y, and {@code {aboveBottom: 8}} or {@code {belowTop: 8}}
+     * are measured from the dimension's own floor and ceiling. The relative ones are what an ore
+     * meant for the nether needs, since y 8 is near the bottom of the overworld and nowhere near
+     * the bottom of anywhere else.
+     *
+     * @param min the low end, as a number or an anchor
+     * @param max the high end, as a number or an anchor
+     */
+    public void uniformHeight(Object min, Object max) {
+        triangle = false;
+        minAnchor = anchor(min);
+        maxAnchor = anchor(max);
+    }
+
+    /**
+     * Sets the height range, biased towards the middle of it.
+     *
+     * <p>Vanilla calls this a trapezoid and uses it for most of the ores a player digs for: iron
+     * peaks in the middle of its range and thins out towards both ends, which is why an iron level
+     * exists at all. {@link #uniformHeight} is the flat alternative.
+     *
+     * @param min the low end, as a number or an anchor
+     * @param max the high end, as a number or an anchor
+     */
+    public void triangleHeight(Object min, Object max) {
+        triangle = true;
+        minAnchor = anchor(min);
+        maxAnchor = anchor(max);
+    }
+
+    /**
+     * Sets whether the height range is biased towards its middle.
+     *
+     * @param triangle true for the trapezoid distribution, false for the even one
+     */
+    public void setTriangle(boolean triangle) {
+        this.triangle = triangle;
     }
 
     /**
@@ -148,6 +243,16 @@ public class OreProperties {
      */
     public void setDiscardChanceOnAirExposure(double chance) {
         discardChanceOnAirExposure = (float) chance;
+    }
+
+    /**
+     * Sets how often a block touching air is left out — KubeJS's name for
+     * {@link #setDiscardChanceOnAirExposure}.
+     *
+     * @param chance 0 for never, 1 for always
+     */
+    public void setNoSurface(double chance) {
+        setDiscardChanceOnAirExposure(chance);
     }
 
     /**
@@ -166,6 +271,15 @@ public class OreProperties {
      */
     public void setStep(String step) {
         this.step = step;
+    }
+
+    /**
+     * Sets which generation step the ore belongs to — KubeJS's name for {@link #setStep}.
+     *
+     * @param worldgenLayer a decoration step name, e.g. {@code underground_ores}
+     */
+    public void setWorldgenLayer(String worldgenLayer) {
+        setStep(worldgenLayer);
     }
 
     /**
@@ -215,7 +329,7 @@ public class OreProperties {
     /** Where the vein goes: how many per chunk, spread over the chunk, between which heights. */
     JsonObject placedFeature(ResourceLocation featureId) {
         var placement = new JsonArray();
-        placement.add(named("minecraft:count", "count", count));
+        placement.add(chance > 0 ? named("minecraft:rarity_filter", "chance", chance) : count());
         // Without in_square every vein in a chunk starts at the same x and z.
         placement.add(typed("minecraft:in_square"));
         placement.add(heightRange());
@@ -229,19 +343,73 @@ public class OreProperties {
         return json;
     }
 
-    private JsonObject heightRange() {
-        var uniform = new JsonObject();
-        uniform.add("min_inclusive", absolute(minHeight));
-        uniform.add("max_inclusive", absolute(maxHeight));
+    private JsonObject count() {
+        var json = typed("minecraft:count");
 
-        var json = typed("minecraft:height_range");
-        json.add("height", withType(uniform, "minecraft:uniform"));
+        if (countMax > count) {
+            var range = new JsonObject();
+            range.addProperty("min_inclusive", count);
+            range.addProperty("max_inclusive", countMax);
+
+            var uniform = typed("minecraft:uniform");
+            uniform.add("value", range);
+            json.add("count", uniform);
+        } else {
+            json.addProperty("count", count);
+        }
+
         return json;
     }
 
+    private JsonObject heightRange() {
+        var height = new JsonObject();
+        height.add("min_inclusive", minAnchor != null ? minAnchor : absolute(minHeight));
+        height.add("max_inclusive", maxAnchor != null ? maxAnchor : absolute(maxHeight));
+
+        var json = typed("minecraft:height_range");
+        json.add("height",
+            withType(height, triangle ? "minecraft:trapezoid" : "minecraft:uniform"));
+        return json;
+    }
+
+    /** Reads one end of a height range into the anchor shape a height provider accepts. */
+    private static JsonObject anchor(Object value) {
+        var unwrapped = ValueUtils.unwrap(value);
+
+        if (unwrapped instanceof Map<?, ?> map && !map.isEmpty()) {
+            var entry = map.entrySet().iterator().next();
+
+            var name = switch (String.valueOf(entry.getKey())) {
+                case "aboveBottom", "above_bottom" -> "above_bottom";
+                case "belowTop", "below_top" -> "below_top";
+                default -> "absolute";
+            };
+
+            return offset(name, asInt(entry.getValue()));
+        }
+
+        if ("bottom".equals(unwrapped)) {
+            return offset("above_bottom", 0);
+        } else if ("top".equals(unwrapped)) {
+            return offset("below_top", 0);
+        }
+
+        return absolute(asInt(unwrapped));
+    }
+
+    private static int asInt(@Nullable Object value) {
+        var unwrapped = ValueUtils.unwrap(value);
+        return unwrapped instanceof Number number ? number.intValue()
+            : (int) Double.parseDouble(String.valueOf(unwrapped));
+    }
+
     private static JsonObject absolute(int y) {
+        return offset("absolute", y);
+    }
+
+    private static JsonObject offset(String name, int y) {
         var json = new JsonObject();
-        json.addProperty("absolute", y);
+        json.addProperty(name, y);
         return json;
     }
 

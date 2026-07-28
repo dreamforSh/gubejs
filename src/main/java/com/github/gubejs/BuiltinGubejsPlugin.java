@@ -30,6 +30,7 @@ import com.github.gubejs.bindings.ItemWrapper;
 import com.github.gubejs.bindings.KMath;
 import com.github.gubejs.bindings.LegacyCodeHandler;
 import com.github.gubejs.bindings.NBTIOWrapper;
+import com.github.gubejs.bindings.NotificationWrapper;
 import com.github.gubejs.bindings.PlatformWrapper;
 import com.github.gubejs.bindings.TextWrapper;
 import com.github.gubejs.bindings.UUIDWrapper;
@@ -151,6 +152,9 @@ public final class BuiltinGubejsPlugin extends GubejsPlugin {
         event.add("Text", TextWrapper.class);
         // KubeJS binds the same wrapper under both names, and packs use both.
         event.add("Component", TextWrapper.class);
+        // Bound on both sides even though only a client shows a toast: what it builds is the
+        // description a server script hands to player.notify.
+        event.add("Notification", NotificationWrapper.class);
         event.add("Utils", UtilsWrapper.class);
         // The pack's own stages, which is what recipe.stage() gates on. Not player.stages -- see
         // PackStages for why a recipe condition cannot be per player.

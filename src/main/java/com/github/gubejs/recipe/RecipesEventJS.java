@@ -259,6 +259,10 @@ public final class RecipesEventJS extends EventJS {
             }
         });
 
+        if (com.github.gubejs.DevProperties.get().logRemovedRecipes) {
+            doomed.forEach(id -> ConsoleJS.SERVER.info("- " + id + " (matched " + parsed + ")"));
+        }
+
         doomed.forEach(recipes::remove);
         doomed.forEach(added::remove);
         removedCount += doomed.size();
@@ -533,6 +537,7 @@ public final class RecipesEventJS extends EventJS {
 
             if (replaceIn(object, from, to, results)) {
                 changed++;
+                logModified(entry.getKey());
             }
         }
 
@@ -696,6 +701,87 @@ public final class RecipesEventJS extends EventJS {
     protected void afterPosted(com.github.gubejs.event.EventResult result) {
         ConsoleJS.SERVER.info("Recipes: " + added.size() + " added, " + removedCount
             + " removed, " + modifiedCount + " modified; " + recipes.size() + " total");
+
+        var dev = com.github.gubejs.DevProperties.get();
+
+        if (dev.logSkippedRecipes) {
+            reportSkipped();
+        }
+
+        if (dev.dataPackOutput) {
+            writeDataPack();
+        }
+    }
+
+    /**
+     * Names the recipes the game is about to throw away.
+     *
+     * <p>A recipe whose type no serialiser owns is dropped while the datapacks load, with one line
+     * in the game's log that names the file and not the reason. From here the reason is obvious —
+     * the mod that owns the type is not installed — and a pack author looking for a recipe that
+     * "does not work" is usually looking at one of these.
+     */
+    private void reportSkipped() {
+        var reported = 0;
+
+        for (var entry : recipes.entrySet()) {
+            if (!(entry.getValue() instanceof JsonObject object)) {
+                ConsoleJS.SERVER.warn("skipped " + entry.getKey() + ": not a JSON object");
+                reported++;
+                continue;
+            }
+
+            var type = object.has("type") ? object.get("type").getAsString() : "";
+            var id = ResourceLocation.tryParse(withNamespace(type));
+
+            if (id == null || !ForgeRegistries.RECIPE_SERIALIZERS.containsKey(id)) {
+                ConsoleJS.SERVER.warn("skipped " + entry.getKey() + ": nothing can read type '"
+                    + type + "'");
+                reported++;
+            }
+        }
+
+        ConsoleJS.SERVER.info(reported == 0
+            ? "Every recipe has a serialiser that can read it"
+            : reported + " recipe(s) will not load");
+    }
+
+    /**
+     * Writes the recipes the game ends up with, as a datapack on disk.
+     *
+     * <p>One file per recipe under {@code local/gubejs/export/datapack/}, in the layout a datapack
+     * has, so the output can be read as files or dropped into {@code datapacks/} of a world to
+     * reproduce exactly what a pack produced. Written after every listener, which is the only moment
+     * the answer is final.
+     */
+    private void writeDataPack() {
+        var root = com.github.gubejs.GubejsPaths.EXPORT.resolve("datapack");
+        var written = 0;
+
+        try {
+            for (var entry : recipes.entrySet()) {
+                var id = entry.getKey();
+                var file = root.resolve("data").resolve(id.getNamespace())
+                    .resolve("recipes").resolve(id.getPath() + ".json");
+                java.nio.file.Files.createDirectories(file.getParent());
+                java.nio.file.Files.writeString(file,
+                    JsonUtils.toPrettyString(entry.getValue()));
+                written++;
+            }
+
+            java.nio.file.Files.writeString(root.resolve("pack.mcmeta"), """
+                {
+                  "pack": {
+                    "description": "Recipes as Gubejs left them",
+                    "pack_format": 10
+                  }
+                }""");
+        } catch (Exception ex) {
+            ConsoleJS.SERVER.error("Could not write the recipe datapack to " + root, ex);
+            return;
+        }
+
+        ConsoleJS.SERVER.info("Wrote " + written + " recipe file(s) to " + root);
     }
 
     /**
@@ -730,6 +816,22 @@ public final class RecipesEventJS extends EventJS {
         modifiedCount++;
     }
 
+    /**
+     * Counts a rewrite and, when {@code dev.properties} asks, says which recipe it was.
+     *
+     * @param id the recipe that changed
+     */
+    void countModified(ResourceLocation id) {
+        modifiedCount++;
+        logModified(id);
+    }
+
+    private void logModified(ResourceLocation id) {
+        if (com.github.gubejs.DevProperties.get().logModifiedRecipes) {
+            ConsoleJS.SERVER.info("~ " + id + " " + recipes.get(id));
+        }
+    }
+
     private RecipeJS register(JsonObject json, ResourceLocation id) {
         var unique = id;
 
@@ -741,6 +843,11 @@ public final class RecipesEventJS extends EventJS {
 
         recipes.put(unique, json);
         added.put(unique, json);
+
+        if (com.github.gubejs.DevProperties.get().logAddedRecipes) {
+            ConsoleJS.SERVER.info("+ " + unique + " " + json);
+        }
+
         return new RecipeJS(this, json, unique);
     }
 
@@ -764,7 +871,32 @@ public final class RecipesEventJS extends EventJS {
             name = type == null ? "recipe" : type.getPath();
         }
 
-        return new ResourceLocation(Gubejs.MOD_ID, name.replace(':', '_').replace('/', '_'));
+        return new ResourceLocation(Gubejs.MOD_ID, asPath(name));
+    }
+
+    /**
+     * Reduces whatever named the result to something a resource location will accept.
+     *
+     * <p>Every character outside the allowed set, not just {@code :} and {@code /}: a result read
+     * from raw JSON can be a tag ({@code "#minecraft:planks"}) or anything else a script wrote, and
+     * one stray {@code #} would have {@code new ResourceLocation} throw — from inside the recipe
+     * event, which takes the whole {@code ServerEvents.recipes} listener down with it and leaves a
+     * pack with no recipes and one puzzling exception.
+     *
+     * @param name what the result named
+     * @return a legal path, never empty
+     */
+    private static String asPath(String name) {
+        var builder = new StringBuilder(name.length());
+
+        for (var c : name.toLowerCase(java.util.Locale.ROOT).toCharArray()) {
+            builder.append(c >= 'a' && c <= 'z' || c >= '0' && c <= '9'
+                || c == '_' || c == '.' || c == '-' ? c : '_');
+        }
+
+        // A name made entirely of rejected characters would leave nothing at all, and an empty
+        // path is illegal too.
+        return builder.length() == 0 ? "recipe" : builder.toString();
     }
 
     /** Reads an item id out of whichever shape a result was written in. */

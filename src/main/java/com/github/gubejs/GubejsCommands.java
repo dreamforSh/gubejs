@@ -30,6 +30,8 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.commands.arguments.ResourceLocationArgument;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
@@ -85,8 +87,512 @@ public final class GubejsCommands {
             .then(Commands.literal("custom_command")
                 .then(Commands.argument("id", StringArgumentType.word())
                     .executes(ctx -> runCustomCommand(ctx.getSource(),
-                        StringArgumentType.getString(ctx, "id"))))));
+                        StringArgumentType.getString(ctx, "id")))))
+            .then(Commands.literal("list_tag")
+                // An id rather than a word or a quoted string: a bare word stops at '/' and ':', so
+                // 'worldgen/biome' and 'forge:biome_modifiers' could not be typed at all, and a
+                // quoted string would make every registry name need quotes. A registry name is a
+                // resource location, so the game's own argument type accepts exactly the set that
+                // resolves.
+                .then(Commands.argument("registry", ResourceLocationArgument.id())
+                    .suggests(REGISTRIES)
+                    .then(Commands.argument("tag", StringArgumentType.string())
+                        .suggests(TAGS)
+                        .executes(ctx -> listTag(ctx.getSource(),
+                            ResourceLocationArgument.getId(ctx, "registry"),
+                            StringArgumentType.getString(ctx, "tag"))))))
+            .then(Commands.literal("dump_registry")
+                .then(Commands.argument("registry", ResourceLocationArgument.id())
+                    .suggests(REGISTRIES)
+                    .executes(ctx -> dumpRegistry(ctx.getSource(),
+                        ResourceLocationArgument.getId(ctx, "registry")))))
+            .then(Commands.literal("export").executes(ctx -> export(ctx.getSource())))
+            .then(Commands.literal("stages")
+                .then(Commands.literal("list")
+                    .executes(ctx -> listStages(ctx.getSource(),
+                        ctx.getSource().getPlayerOrException()))
+                    .then(Commands.argument("player", EntityArgument.player())
+                        .executes(ctx -> listStages(ctx.getSource(),
+                            EntityArgument.getPlayer(ctx, "player")))))
+                .then(Commands.literal("add")
+                    .then(Commands.argument("player", EntityArgument.player())
+                        .then(Commands.argument("stage", StringArgumentType.word())
+                            .executes(ctx -> setStage(ctx.getSource(),
+                                EntityArgument.getPlayer(ctx, "player"),
+                                StringArgumentType.getString(ctx, "stage"), true)))))
+                .then(Commands.literal("remove")
+                    .then(Commands.argument("player", EntityArgument.player())
+                        .then(Commands.argument("stage", StringArgumentType.word())
+                            .suggests(PLAYER_STAGES)
+                            .executes(ctx -> setStage(ctx.getSource(),
+                                EntityArgument.getPlayer(ctx, "player"),
+                                StringArgumentType.getString(ctx, "stage"), false)))))
+                .then(Commands.literal("clear")
+                    .then(Commands.argument("player", EntityArgument.player())
+                        .executes(ctx -> clearStages(ctx.getSource(),
+                            EntityArgument.getPlayer(ctx, "player"))))))
+            .then(Commands.literal("pack_stages")
+                .then(Commands.literal("list").executes(ctx -> listPackStages(ctx.getSource())))
+                .then(Commands.literal("add")
+                    .then(Commands.argument("stage", StringArgumentType.word())
+                        .executes(ctx -> setPackStage(ctx.getSource(),
+                            StringArgumentType.getString(ctx, "stage"), true))))
+                .then(Commands.literal("remove")
+                    .then(Commands.argument("stage", StringArgumentType.word())
+                        .suggests(PACK_STAGES)
+                        .executes(ctx -> setPackStage(ctx.getSource(),
+                            StringArgumentType.getString(ctx, "stage"), false))))
+                .then(Commands.literal("clear")
+                    .executes(ctx -> clearPackStages(ctx.getSource())))));
     }
+
+    // --- tags and registries -------------------------------------------------------------------
+
+    /**
+     * Lists what a tag currently matches.
+     *
+     * <p>What a pack author is really asking is "is this the tag I want", and the only honest answer
+     * is the list of things in it after every datapack and every mod has had its say. Each line
+     * copies itself, since the next step is usually to paste one into a recipe.
+     *
+     * @param source who ran the command
+     * @param registryName the registry the tag belongs to, e.g. {@code item}
+     * @param tagName the tag id, with or without a leading {@code #}
+     * @return how many entries the tag has
+     */
+    private static int listTag(CommandSourceStack source,
+                               net.minecraft.resources.ResourceLocation registryName,
+                               String tagName) {
+        var registry = registryOf(source.registryAccess(), registryName);
+
+        if (registry == null) {
+            source.sendFailure(Component.literal("There is no registry called '" + registryName
+                + "'. Try: item, block, fluid, entity_type, worldgen/biome"));
+            return 0;
+        }
+
+        var trimmed = tagName.startsWith("#") ? tagName.substring(1) : tagName;
+        var tagId = net.minecraft.resources.ResourceLocation.tryParse(
+            trimmed.indexOf(':') == -1 ? "minecraft:" + trimmed : trimmed);
+
+        if (tagId == null) {
+            source.sendFailure(Component.literal("Not a tag id: '" + tagName + "'"));
+            return 0;
+        }
+
+        return listTagOf(source, registry, tagId);
+    }
+
+    /**
+     * Lists one tag of one registry.
+     *
+     * <p>Generic because a {@link net.minecraft.tags.TagKey} has to agree with the registry it is
+     * looked up in, and a {@code Registry<?>} cannot state that agreement — the type variable is
+     * what carries it, and capture conversion supplies it here.
+     */
+    private static <T> int listTagOf(CommandSourceStack source,
+                                     net.minecraft.core.Registry<T> registry,
+                                     net.minecraft.resources.ResourceLocation tagId) {
+        var tag = registry.getTag(net.minecraft.tags.TagKey.create(registry.key(), tagId));
+
+        if (tag.isEmpty()) {
+            source.sendFailure(Component.literal("There is no '#" + tagId + "' tag in "
+                + registry.key().location() + ". A tag no datapack fills does not exist at all, "
+                + "which is the same thing the game tells a recipe that asks for one."));
+            return 0;
+        }
+
+        var ids = new java.util.ArrayList<String>();
+
+        for (var holder : tag.get()) {
+            holder.unwrapKey().ifPresent(key -> ids.add(key.location().toString()));
+        }
+
+        java.util.Collections.sort(ids);
+
+        source.sendSuccess(Component.literal("#" + tagId + " in " + registry.key().location()
+            + " [" + ids.size() + "]").withStyle(ChatFormatting.GOLD), false);
+
+        for (var id : ids) {
+            source.sendSuccess(copyable(quoted(id), ChatFormatting.GREEN, "Entry"), false);
+        }
+
+        return ids.size();
+    }
+
+    /**
+     * Writes every id in a registry to a file.
+     *
+     * <p>A file rather than chat, because the interesting registries have thousands of entries and
+     * chat keeps a few hundred lines. The path is printed and opens on click.
+     *
+     * @param source who ran the command
+     * @param registryName the registry, e.g. {@code item}
+     * @return how many entries were written
+     */
+    private static int dumpRegistry(CommandSourceStack source,
+                                    net.minecraft.resources.ResourceLocation registryName) {
+        var registry = registryOf(source.registryAccess(), registryName);
+
+        if (registry == null) {
+            source.sendFailure(Component.literal("There is no registry called '" + registryName
+                + "'"));
+            return 0;
+        }
+
+        var ids = new java.util.ArrayList<String>();
+        registry.keySet().forEach(id -> ids.add(id.toString()));
+        java.util.Collections.sort(ids);
+
+        var name = registry.key().location().toString().replace(':', '_').replace('/', '_');
+        var file = GubejsPaths.EXPORT.resolve(name + ".txt");
+
+        try {
+            java.nio.file.Files.write(file, ids);
+        } catch (java.io.IOException ex) {
+            Gubejs.LOGGER.error("Could not write " + file, ex);
+            source.sendFailure(Component.literal("Could not write " + file + ": "
+                + ex.getMessage()));
+            return 0;
+        }
+
+        source.sendSuccess(Component.literal("Wrote " + ids.size() + " ids to ")
+            .append(Component.literal(file.getFileName().toString()).withStyle(style -> style
+                .withColor(ChatFormatting.GREEN)
+                .withClickEvent(new ClickEvent(ClickEvent.Action.OPEN_FILE,
+                    file.toAbsolutePath().toString()))
+                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
+                    Component.literal(file.toAbsolutePath().toString()))))), true);
+        return ids.size();
+    }
+
+    /**
+     * Writes what the game ended up with to files, for reading outside it.
+     *
+     * <p>The command a pack author reaches for when a recipe is not behaving: the recipes are dumped
+     * as the game holds them, after every script and every datapack, along with the item, block and
+     * fluid lists and the tags of each. Chat cannot hold any of that, and the answer to "what is
+     * actually loaded" is not something a script can be trusted to summarise.
+     *
+     * @param source who ran the command
+     * @return how many files were written
+     */
+    private static int export(CommandSourceStack source) {
+        var server = source.getServer();
+        var root = GubejsPaths.EXPORT;
+        var written = 0;
+
+        try {
+            written += exportRecipes(server, root);
+            written += exportRegistry(source, root, "items",
+                net.minecraft.core.Registry.ITEM_REGISTRY);
+            written += exportRegistry(source, root, "blocks",
+                net.minecraft.core.Registry.BLOCK_REGISTRY);
+            written += exportRegistry(source, root, "fluids",
+                net.minecraft.core.Registry.FLUID_REGISTRY);
+            written += exportRegistry(source, root, "entity_types",
+                net.minecraft.core.Registry.ENTITY_TYPE_REGISTRY);
+        } catch (Exception ex) {
+            Gubejs.LOGGER.error("Could not export", ex);
+            source.sendFailure(Component.literal("Could not export: " + ex));
+            return 0;
+        }
+
+        var count = written;
+        source.sendSuccess(Component.literal("Exported " + count + " file(s) to ")
+            .append(Component.literal("export").withStyle(style -> style
+                .withColor(ChatFormatting.GREEN)
+                .withClickEvent(new ClickEvent(ClickEvent.Action.OPEN_FILE,
+                    root.toAbsolutePath().toString()))
+                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
+                    Component.literal(root.toAbsolutePath().toString()))))), true);
+        return count;
+    }
+
+    /**
+     * Writes every loaded recipe, grouped by type, and one file listing the types.
+     *
+     * <p>The recipe objects rather than the files they came from: a recipe a mod added in code never
+     * was a file, and a recipe another script has rewritten is no longer the file it was. What is
+     * written is the id, the type and the result, which is what a pack author is looking for — the
+     * whole of a recipe's contents cannot be read back out of a deserialised recipe of an unknown
+     * type, and pretending otherwise would produce files that are wrong in a way nobody could see.
+     */
+    private static int exportRecipes(net.minecraft.server.MinecraftServer server,
+                                     java.nio.file.Path root) throws java.io.IOException {
+        var byType = new java.util.TreeMap<String, java.util.List<String>>();
+
+        for (var recipe : server.getRecipeManager().getRecipes()) {
+            var type = String.valueOf(
+                net.minecraft.core.Registry.RECIPE_TYPE.getKey(recipe.getType()));
+            var result = recipe.getResultItem();
+            byType.computeIfAbsent(type, t -> new java.util.ArrayList<>())
+                .add(recipe.getId() + " -> " + (result.isEmpty() ? "(decided when crafted)"
+                    : result.getCount() + "x " + net.minecraftforge.registries.ForgeRegistries.ITEMS
+                    .getKey(result.getItem())));
+        }
+
+        var directory = root.resolve("recipes");
+        java.nio.file.Files.createDirectories(directory);
+        var summary = new java.util.ArrayList<String>();
+        var written = 0;
+
+        for (var entry : byType.entrySet()) {
+            var lines = entry.getValue();
+            java.util.Collections.sort(lines);
+            summary.add(entry.getValue().size() + "\t" + entry.getKey());
+            java.nio.file.Files.write(
+                directory.resolve(entry.getKey().replace(':', '_').replace('/', '_') + ".txt"),
+                lines);
+            written++;
+        }
+
+        java.nio.file.Files.write(root.resolve("recipe_types.txt"), summary);
+        return written + 1;
+    }
+
+    /** Writes one registry's ids, and the tags of each, as two files. */
+    private static <T> int exportRegistry(CommandSourceStack source, java.nio.file.Path root,
+                                          String name,
+                                          net.minecraft.resources.ResourceKey<
+                                              net.minecraft.core.Registry<T>> key)
+        throws java.io.IOException {
+        var registry = source.registryAccess().registry(key).orElse(null);
+
+        if (registry == null) {
+            return 0;
+        }
+
+        var ids = new java.util.ArrayList<String>();
+        registry.keySet().forEach(id -> ids.add(id.toString()));
+        java.util.Collections.sort(ids);
+        java.nio.file.Files.write(root.resolve(name + ".txt"), ids);
+
+        var tags = new java.util.ArrayList<String>();
+
+        registry.getTagNames().forEach(tag -> {
+            var members = new java.util.ArrayList<String>();
+            registry.getTag(tag).ifPresent(holders -> holders.forEach(holder ->
+                holder.unwrapKey().ifPresent(id -> members.add(id.location().toString()))));
+            java.util.Collections.sort(members);
+            tags.add("#" + tag.location() + " [" + members.size() + "]");
+            members.forEach(member -> tags.add("\t" + member));
+        });
+
+        java.nio.file.Files.write(root.resolve(name + "_tags.txt"), tags);
+        return 2;
+    }
+
+    /**
+     * Finds a registry by the name a script would use.
+     *
+     * <p>Through the command source's registries rather than the static root registry, because the
+     * root holds only half of what the command is asked about. A dynamic registry — {@code
+     * worldgen/biome}, {@code worldgen/structure}, {@code dimension_type} — is built per world out
+     * of the datapacks and never enters the root, which left the tag most worth listing, a biome
+     * tag, answering "there is no registry called that". A {@code RegistryAccess} is asked about
+     * its own registries first and falls back to the root, so items, blocks and every Forge
+     * registry with a root wrapper resolve exactly as they did.
+     *
+     * @param registries the registries the command is running against
+     * @param name the registry id, whose namespace is {@code minecraft} unless it says otherwise
+     * @return the registry, or {@code null} if nothing goes by that name
+     */
+    @org.jetbrains.annotations.Nullable
+    private static net.minecraft.core.Registry<?> registryOf(
+        net.minecraft.core.RegistryAccess registries,
+        net.minecraft.resources.ResourceLocation name) {
+        net.minecraft.resources.ResourceKey<net.minecraft.core.Registry<Object>> key =
+            net.minecraft.resources.ResourceKey.createRegistryKey(name);
+        return registries.registry(key).orElse(null);
+    }
+
+    // --- stages --------------------------------------------------------------------------------
+
+    /**
+     * Lists a player's stages.
+     *
+     * @param source who ran the command
+     * @param player whose stages to list
+     * @return how many they have
+     */
+    private static int listStages(CommandSourceStack source,
+                                  net.minecraft.server.level.ServerPlayer player) {
+        var stages = new com.github.gubejs.core.StageManager(player).getAll();
+
+        if (stages.isEmpty()) {
+            source.sendSuccess(Component.literal(player.getGameProfile().getName()
+                + " has no stages"), false);
+            return 0;
+        }
+
+        source.sendSuccess(Component.literal(player.getGameProfile().getName() + "'s stages ["
+            + stages.size() + "]").withStyle(ChatFormatting.GOLD), false);
+
+        for (var stage : stages) {
+            source.sendSuccess(copyable(quoted(stage), ChatFormatting.GREEN, "Stage"), false);
+        }
+
+        return stages.size();
+    }
+
+    /**
+     * Gives a player a stage, or takes it away.
+     *
+     * <p>Through {@link com.github.gubejs.core.StageManager} rather than by writing the data
+     * directly, so the change is stored where death does not lose it, synced to that player's
+     * client, and announced to {@code GameStageEvents} — a command that skipped any of the three
+     * would leave the game in a state no script could have produced.
+     *
+     * @param add whether to give the stage rather than take it
+     * @return 1 if anything changed
+     */
+    private static int setStage(CommandSourceStack source,
+                                net.minecraft.server.level.ServerPlayer player, String stage,
+                                boolean add) {
+        var stages = new com.github.gubejs.core.StageManager(player);
+        var changed = add ? stages.add(stage) : stages.remove(stage);
+        var name = player.getGameProfile().getName();
+
+        if (!changed) {
+            source.sendFailure(Component.literal(name + (add ? " already has '" : " does not have '")
+                + stage + "'"));
+            return 0;
+        }
+
+        source.sendSuccess(Component.literal((add ? "Gave " : "Took ") + stage + (add ? " to " : " from ")
+            + name), true);
+        return 1;
+    }
+
+    private static int clearStages(CommandSourceStack source,
+                                   net.minecraft.server.level.ServerPlayer player) {
+        var removed = new com.github.gubejs.core.StageManager(player).clear();
+        source.sendSuccess(Component.literal("Removed " + removed + " stage(s) from "
+            + player.getGameProfile().getName()), true);
+        return removed;
+    }
+
+    /**
+     * Lists the stages the whole pack has reached.
+     *
+     * @return how many are set
+     */
+    private static int listPackStages(CommandSourceStack source) {
+        var stages = com.github.gubejs.core.PackStages.getAll();
+
+        if (stages.isEmpty()) {
+            source.sendSuccess(Component.literal("The pack has no stages"), false);
+            return 0;
+        }
+
+        source.sendSuccess(Component.literal("Pack stages [" + stages.size() + "]")
+            .withStyle(ChatFormatting.GOLD), false);
+
+        for (var stage : stages) {
+            source.sendSuccess(copyable(quoted(stage), ChatFormatting.GREEN, "Pack stage"), false);
+        }
+
+        return stages.size();
+    }
+
+    /**
+     * Sets or unsets a stage for the whole pack.
+     *
+     * <p>The recipes gated on it change at the next datapack reload, not now, and the message says
+     * so: a recipe condition is asked once while the recipe is read, so a pack author who is not
+     * told would conclude the command did nothing.
+     *
+     * @param add whether to set the stage rather than unset it
+     * @return 1 if anything changed
+     */
+    private static int setPackStage(CommandSourceStack source, String stage, boolean add) {
+        var changed = add ? com.github.gubejs.core.PackStages.add(stage)
+            : com.github.gubejs.core.PackStages.remove(stage);
+
+        if (!changed) {
+            source.sendFailure(Component.literal("The pack " + (add ? "already has '" : "does not have '")
+                + stage + "'"));
+            return 0;
+        }
+
+        source.sendSuccess(Component.literal((add ? "Set" : "Unset") + " pack stage '" + stage
+            + "'. Recipes gated on it change at the next ")
+            .append(Component.literal("/gubejs reload").withStyle(style -> style
+                .withColor(ChatFormatting.AQUA)
+                .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND,
+                    "/gubejs reload")))), true);
+        return 1;
+    }
+
+    private static int clearPackStages(CommandSourceStack source) {
+        var removed = com.github.gubejs.core.PackStages.clear();
+        source.sendSuccess(Component.literal("Removed " + removed + " pack stage(s)"), true);
+        return removed;
+    }
+
+    /**
+     * Completes the registry argument, with the vanilla namespace left off where it is implied.
+     *
+     * <p>Both halves of what {@link #registryOf} resolves, so completion can neither offer a name the
+     * command will reject nor hide one it would have accepted — which is how the dynamic registries
+     * stayed a secret. The world's own registries hold the dynamic ones and the root holds the rest;
+     * a set merges them, since a registry that is in both would otherwise be offered twice.
+     */
+    private static final com.mojang.brigadier.suggestion.SuggestionProvider<CommandSourceStack>
+        REGISTRIES = (ctx, builder) -> {
+            var names = new java.util.TreeSet<String>();
+
+            ctx.getSource().registryAccess().registries()
+                .forEach(entry -> names.add(shortName(entry.key().location())));
+            net.minecraft.core.Registry.REGISTRY.keySet()
+                .forEach(id -> names.add(shortName(id)));
+
+            for (var name : names) {
+                builder.suggest(name);
+            }
+
+            return builder.buildFuture();
+        };
+
+    /** Leaves the vanilla namespace off a registry id, since the command assumes it. */
+    private static String shortName(net.minecraft.resources.ResourceLocation id) {
+        return id.getNamespace().equals("minecraft") ? id.getPath() : id.toString();
+    }
+
+    /** Completes the tag argument, from the tags the chosen registry actually has. */
+    private static final com.mojang.brigadier.suggestion.SuggestionProvider<CommandSourceStack>
+        TAGS = (ctx, builder) -> {
+            var registry = registryOf(ctx.getSource().registryAccess(),
+                ResourceLocationArgument.getId(ctx, "registry"));
+
+            if (registry != null) {
+                registry.getTagNames().forEach(tag ->
+                    builder.suggest("\"" + tag.location() + "\""));
+            }
+
+            return builder.buildFuture();
+        };
+
+    /** Completes a stage the named player actually has, since those are the removable ones. */
+    private static final com.mojang.brigadier.suggestion.SuggestionProvider<CommandSourceStack>
+        PLAYER_STAGES = (ctx, builder) -> {
+            try {
+                new com.github.gubejs.core.StageManager(EntityArgument.getPlayer(ctx, "player"))
+                    .getAll().forEach(builder::suggest);
+            } catch (com.mojang.brigadier.exceptions.CommandSyntaxException ignored) {
+                // Half-typed player name; there is nothing to complete from yet.
+            }
+
+            return builder.buildFuture();
+        };
+
+    /** Completes a pack stage that is currently set. */
+    private static final com.mojang.brigadier.suggestion.SuggestionProvider<CommandSourceStack>
+        PACK_STAGES = (ctx, builder) -> {
+            com.github.gubejs.core.PackStages.getAll().forEach(builder::suggest);
+            return builder.buildFuture();
+        };
 
     /**
      * Runs a listener registered with {@code ServerEvents.customCommand}.
@@ -235,13 +741,16 @@ public final class GubejsCommands {
     }
 
     /**
-     * Re-reads {@code config/gubejs/common.properties}.
+     * Re-reads the property files under {@code config/}.
      *
-     * <p>Not everything in it takes effect: the engine settings are read as a script context is
-     * built, so those wait for the next reload of whichever script type they belong to.
+     * <p>Not everything in them takes effect: the engine settings are read as a script context is
+     * built, so those wait for the next reload of whichever script type they belong to. The logging
+     * switches in {@code dev.properties} apply from the next datapack reload, which is the next time
+     * anything they describe happens.
      */
     private static int reloadConfig(CommandSourceStack source) {
         CommonProperties.reload();
+        DevProperties.reload();
         // Read from disk like the properties are, and edited from outside the game just as often --
         // a pack author turning a stage on to see what unlocks does it in a text editor.
         com.github.gubejs.core.PackStages.reload();

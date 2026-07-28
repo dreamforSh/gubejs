@@ -89,6 +89,8 @@ public abstract class IngredientAction {
             case "damage" -> new Damage(ingredient, GsonHelper.getAsInt(json, "amount", 1));
             case "replace" -> new Replace(ingredient,
                 ShapedRecipe.itemStackFromJson(GsonHelper.getAsJsonObject(json, "with")));
+            case "consume" -> new Consume(ingredient);
+            case "custom" -> new Custom(ingredient, GsonHelper.getAsInt(json, "callback", -1));
             default -> null;
         };
     }
@@ -106,6 +108,8 @@ public abstract class IngredientAction {
         return switch (kind) {
             case 1 -> new Damage(ingredient, buf.readVarInt());
             case 2 -> new Replace(ingredient, buf.readItem());
+            case 3 -> new Consume(ingredient);
+            case 4 -> new Custom(ingredient, buf.readVarInt());
             default -> new Keep(ingredient);
         };
     }
@@ -179,6 +183,74 @@ public abstract class IngredientAction {
             buf.writeByte(1);
             ingredient.toNetwork(buf);
             buf.writeVarInt(amount);
+        }
+    }
+
+    /**
+     * Consumes the ingredient outright, whatever the item would rather leave behind.
+     *
+     * <p>The opposite of {@link Keep}, and not the same as saying nothing: an item with a crafting
+     * remainder — a bucket, a bottle, a modded container — leaves that remainder in the grid by
+     * default, and a recipe that means to consume the container has no other way to say so.
+     */
+    public static final class Consume extends IngredientAction {
+
+        public Consume(Ingredient ingredient) {
+            super(ingredient);
+        }
+
+        @Override
+        public ItemStack apply(ItemStack stack, ItemStack original) {
+            return ItemStack.EMPTY;
+        }
+
+        @Override
+        public void toJson(JsonObject json) {
+            json.addProperty("type", "consume");
+            json.add("ingredient", ingredient.toJson());
+        }
+
+        @Override
+        public void toNetwork(FriendlyByteBuf buf) {
+            buf.writeByte(3);
+            ingredient.toNetwork(buf);
+        }
+    }
+
+    /**
+     * Asks a script what to leave in the grid.
+     *
+     * <p>Carries a callback number rather than the function, for the reason every recipe modifier
+     * does: a recipe is written to a file and sent over the network, and a function is neither. The
+     * client finds no callback under the number and leaves what the recipe underneath decided, which
+     * is right — the server is what tells it what is in the grid afterwards.
+     */
+    public static final class Custom extends IngredientAction {
+
+        private final int callback;
+
+        public Custom(Ingredient ingredient, int callback) {
+            super(ingredient);
+            this.callback = callback;
+        }
+
+        @Override
+        public ItemStack apply(ItemStack stack, ItemStack original) {
+            return RecipeCallbacks.applyRemainder(callback, stack, original);
+        }
+
+        @Override
+        public void toJson(JsonObject json) {
+            json.addProperty("type", "custom");
+            json.add("ingredient", ingredient.toJson());
+            json.addProperty("callback", callback);
+        }
+
+        @Override
+        public void toNetwork(FriendlyByteBuf buf) {
+            buf.writeByte(4);
+            ingredient.toNetwork(buf);
+            buf.writeVarInt(callback);
         }
     }
 

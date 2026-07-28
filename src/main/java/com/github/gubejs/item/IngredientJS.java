@@ -87,6 +87,36 @@ public final class IngredientJS {
     }
 
     /**
+     * Reports whether a value asks for everything rather than for something in particular.
+     *
+     * <p>For the questions a script asks of a container — {@code inventory.count()},
+     * {@code inventory.clear()} — where KubeJS reads a missing argument as "anything at all". Read
+     * as {@link Ingredient#EMPTY} instead, those calls answer zero and clear nothing, with no error
+     * to suggest why.
+     *
+     * <p>Not folded into {@link #of}: an ingredient that came out matching every item in the game
+     * because a value was absent is the right answer to "how many items do I have" and the wrong
+     * one everywhere else, most of all in a recipe.
+     *
+     * @param value what a script passed, or did not
+     * @return {@code true} for {@code null}, an empty string and {@code '*'}
+     */
+    public static boolean namesEverything(@Nullable Object value) {
+        var unwrapped = ValueUtils.unwrap(value);
+
+        if (unwrapped == null) {
+            return true;
+        }
+
+        if (unwrapped instanceof CharSequence text) {
+            var s = text.toString().trim();
+            return s.isEmpty() || s.equals("*");
+        }
+
+        return false;
+    }
+
+    /**
      * Reports whether a string names something that can be an ingredient, quietly.
      *
      * @param text the text to test

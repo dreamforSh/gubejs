@@ -85,6 +85,55 @@ public interface ItemStackKJS {
     }
 
     /**
+     * Returns how often this stack is produced, for a recipe type that rolls its outputs.
+     *
+     * @return the chance, 0 to 1, or {@link Double#NaN} when none was set
+     */
+    double gjs$getChance();
+
+    /**
+     * Records how often this stack is produced.
+     *
+     * @param chance the chance, 0 to 1, or {@link Double#NaN} for none
+     */
+    void gjs$setChance(double chance);
+
+    /**
+     * Returns a copy of this stack that is only produced some of the time.
+     *
+     * <pre>{@code
+     * event.recipes.create.crushing([
+     *     Item.of('minecraft:iron_nugget'),
+     *     Item.of('minecraft:redstone').withChance(0.25)
+     * ], 'minecraft:iron_ore')
+     * }</pre>
+     *
+     * <p>Written into the recipe as a {@code chance} key beside the item, which is where every
+     * machine recipe type that rolls its outputs reads one. A recipe type that has no such notion
+     * ignores the key, so the worst a misplaced {@code withChance} does is nothing.
+     *
+     * <p>The chance rides on the stack rather than on the recipe because that is where a pack puts
+     * it: one output of several is the rare one, and the recipe never learns which.
+     *
+     * @param chance the chance, 0 to 1 — or 0 to 100 when a number above 1 is passed
+     * @return the copy
+     */
+    default ItemStack withChance(double chance) {
+        var copy = gjs$self().copy();
+        ((ItemStackKJS) (Object) copy).gjs$setChance(chance > 1D ? chance / 100D : chance);
+        return copy;
+    }
+
+    /**
+     * Returns how often this stack is produced.
+     *
+     * @return the chance, 0 to 1, or {@link Double#NaN} when {@link #withChance} was never used
+     */
+    default double getChance() {
+        return gjs$getChance();
+    }
+
+    /**
      * Returns a copy of this stack with a different count.
      *
      * @param count how many
@@ -214,17 +263,64 @@ public interface ItemStackKJS {
     }
 
     /**
-     * Adds an enchantment, or raises the level of one already there.
+     * Returns a copy of this stack with an enchantment on it.
      *
-     * @param id the enchantment id, e.g. {@code minecraft:sharpness}
-     * @param level how strong
+     * <pre>{@code
+     * Item.of('minecraft:diamond_sword').enchant('sharpness', 5)
+     * Item.of('minecraft:enchanted_book').enchant({ 'minecraft:mending': 1 })
+     * }</pre>
+     *
+     * <p>A copy rather than a change in place, because that is how every pack writing
+     * {@code Item.of(...).enchant(...)} expects it to behave — the alternative returns nothing and
+     * the whole expression is {@code undefined}, which is the shape of bug nobody finds quickly.
+     *
+     * <p>An enchanted book gets a stored enchantment instead of a real one, which is what makes it
+     * a book <em>of</em> that enchantment rather than an enchanted piece of paper.
+     *
+     * @param enchantments an enchantment id, or a map of ids to levels
+     * @param level how strong, when a single id was given
+     * @return the copy
      */
-    default void enchant(String id, int level) {
-        var enchantment = ForgeRegistries.ENCHANTMENTS.getValue(ResourceLocation.tryParse(
-            id.indexOf(':') == -1 ? "minecraft:" + id : id));
+    default ItemStack enchant(@Nullable Object enchantments, int level) {
+        var copy = gjs$self().copy();
+        var unwrapped = com.github.gubejs.util.ValueUtils.unwrap(enchantments);
 
-        if (enchantment != null) {
-            gjs$self().enchant(enchantment, level);
+        if (unwrapped instanceof Map<?, ?> map) {
+            map.forEach((id, value) -> gjs$enchant(copy, String.valueOf(id),
+                value instanceof Number number ? number.intValue() : level));
+        } else if (unwrapped != null) {
+            gjs$enchant(copy, String.valueOf(unwrapped), level);
+        }
+
+        return copy;
+    }
+
+    /**
+     * Returns a copy of this stack with several enchantments on it.
+     *
+     * @param enchantments a map of ids to levels
+     * @return the copy
+     */
+    default ItemStack enchant(@Nullable Object enchantments) {
+        return enchant(enchantments, 1);
+    }
+
+    /** Puts one enchantment on a stack, as a stored one when the stack is a book. */
+    private static void gjs$enchant(ItemStack stack, String id, int level) {
+        var parsed = ResourceLocation.tryParse(id.indexOf(':') == -1 ? "minecraft:" + id : id);
+        var enchantment = parsed == null ? null : ForgeRegistries.ENCHANTMENTS.getValue(parsed);
+
+        if (enchantment == null) {
+            com.github.gubejs.util.ConsoleJS.getCurrent(com.github.gubejs.util.ConsoleJS.SERVER)
+                .warn("There is no enchantment called '" + id + "'");
+            return;
+        }
+
+        if (stack.is(net.minecraft.world.item.Items.ENCHANTED_BOOK)) {
+            net.minecraft.world.item.EnchantedBookItem.addEnchantment(stack,
+                new net.minecraft.world.item.enchantment.EnchantmentInstance(enchantment, level));
+        } else {
+            stack.enchant(enchantment, level);
         }
     }
 

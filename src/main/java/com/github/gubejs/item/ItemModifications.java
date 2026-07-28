@@ -88,6 +88,178 @@ public final class ItemModifications {
     /** Whether the script made it inedible, which no {@link #food} value could say. */
     public boolean foodRemoved;
 
+    /** Lines to add under the item's name, or {@code null} for none. */
+    @Nullable
+    public java.util.List<net.minecraft.network.chat.Component> tooltip;
+
+    /** Whether it shimmers like an enchanted item, or {@code null} to leave it. */
+    @Nullable
+    public Boolean glow;
+
+    /** What colour its durability bar is, or {@code null} to leave it. */
+    @Nullable
+    public Integer barColor;
+
+    /** How full its durability bar is, 0 to 1, or {@code null} to leave it. */
+    @Nullable
+    public Double barWidth;
+
+    /** How long it is held for when used, in ticks, or {@code null} to leave it. */
+    @Nullable
+    public Integer useDuration;
+
+    /** What holding it looks like, or {@code null} to leave it. */
+    @Nullable
+    public net.minecraft.world.item.UseAnim useAnimation;
+
+    /** The behaviour a script gave it, or {@code null} if it gave none. */
+    @Nullable
+    public ItemCallbacks callbacks;
+
+    /**
+     * Returns the callbacks, creating the record on first use.
+     *
+     * @return the callbacks
+     */
+    public ItemCallbacks callbacks() {
+        if (callbacks == null) {
+            callbacks = new ItemCallbacks();
+        }
+
+        return callbacks;
+    }
+
+    /**
+     * Adds lines under the item's name.
+     *
+     * <pre>{@code
+     * event.modify('minecraft:rotten_flesh', item => item.tooltip('Best not'))
+     * }</pre>
+     *
+     * <p>Text, not a callback: a tooltip is built for every slot the mouse passes over, and a line
+     * that never changes should not cost a script call to produce. {@code ItemEvents.tooltip} is
+     * where a line that does change belongs.
+     *
+     * @param lines strings, components, or arrays of either
+     */
+    public void tooltip(Object... lines) {
+        if (tooltip == null) {
+            tooltip = new java.util.ArrayList<>();
+        }
+
+        for (var line : lines) {
+            for (var value : ValueUtils.listOf(line)) {
+                tooltip.add(com.github.gubejs.bindings.TextWrapper.of(value));
+            }
+        }
+    }
+
+    /**
+     * Makes the item shimmer as an enchanted one does.
+     *
+     * @param value {@code true} to make it glow
+     */
+    public void setGlow(boolean value) {
+        glow = value;
+    }
+
+    /**
+     * Sets the colour of the item's durability bar.
+     *
+     * @param value anything {@code Color.of} accepts
+     */
+    public void setBarColor(@Nullable Object value) {
+        barColor = com.github.gubejs.bindings.ColorWrapper.of(value);
+    }
+
+    /**
+     * Sets how full the item's durability bar is, and shows it.
+     *
+     * <p>For an item that has something other than durability to report — charge, fuel, fullness.
+     * A fixed number, since the alternative is a script call inside the inventory renderer; a bar
+     * that has to move with the item's NBT belongs on a real damageable item.
+     *
+     * @param value 0 for empty, 1 for full
+     */
+    public void setBarWidth(double value) {
+        barWidth = value;
+    }
+
+    /**
+     * Sets how long the item is held down for when used.
+     *
+     * <p>Needed by {@code finishUsing} and {@code releaseUsing}: an item with no duration is never
+     * held, so neither callback is ever reached.
+     *
+     * @param value the time in ticks — 32 is what food uses, 72000 is a bow's "until let go"
+     */
+    public void setUseDuration(int value) {
+        useDuration = value;
+    }
+
+    /**
+     * Sets what holding the item looks like.
+     *
+     * @param value {@code 'eat'}, {@code 'drink'}, {@code 'block'}, {@code 'bow'},
+     *     {@code 'spear'}, {@code 'crossbow'}, {@code 'spyglass'}, {@code 'toot_horn'} or
+     *     {@code 'none'}
+     */
+    public void setUseAnimation(@Nullable Object value) {
+        var name = ValueUtils.asString(value);
+
+        if (name == null) {
+            useAnimation = null;
+            return;
+        }
+
+        for (var animation : net.minecraft.world.item.UseAnim.values()) {
+            if (animation.name().equalsIgnoreCase(name.replace('-', '_'))) {
+                useAnimation = animation;
+                return;
+            }
+        }
+
+        com.github.gubejs.util.ConsoleJS.getCurrent(com.github.gubejs.util.ConsoleJS.STARTUP)
+            .error("There is no use animation called '" + name + "'; the names are "
+                + java.util.Arrays.toString(net.minecraft.world.item.UseAnim.values()));
+    }
+
+    /**
+     * Runs a callback when the item is right-clicked in the air.
+     *
+     * @param callback takes the event, returns {@code true} if the item did something
+     */
+    public void use(java.util.function.Function<ItemCallbackEventJS, Object> callback) {
+        callbacks().setUse(callback);
+    }
+
+    /**
+     * Runs a callback when a hold finishes.
+     *
+     * @param callback takes the event, returns what to leave in the hand
+     */
+    public void finishUsing(java.util.function.Function<ItemCallbackEventJS, Object> callback) {
+        callbacks().setFinishUsing(callback);
+    }
+
+    /**
+     * Runs a callback when a hold is let go early.
+     *
+     * @param callback takes the event
+     */
+    public void releaseUsing(java.util.function.Function<ItemCallbackEventJS, Object> callback) {
+        callbacks().setReleaseUsing(callback);
+    }
+
+    /**
+     * Runs a callback when the item hits something.
+     *
+     * @param callback takes the event, returns {@code false} to skip the usual durability loss
+     */
+    public void hurtEnemy(java.util.function.Function<ItemCallbackEventJS, Object> callback) {
+        callbacks().setHurtEnemy(callback);
+    }
+
     /**
      * Changes what eating the item does, or makes something edible that was not.
      *
@@ -182,6 +354,15 @@ public final class ItemModifications {
      */
     public void setBurnTime(int value) {
         burnTime = value;
+    }
+
+    /**
+     * Sets what is left in the grid when the item is used in a recipe, under the name KubeJS uses.
+     *
+     * @param value an item id, or {@code null} for nothing
+     */
+    public void setContainerItem(@Nullable Object value) {
+        setCraftingRemainder(value);
     }
 
     /**

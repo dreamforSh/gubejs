@@ -247,10 +247,10 @@ public final class RegistryInfo<T> {
         return builders;
     }
 
-    /** Drops every queued builder, so a startup reload does not register everything twice. */
-    public void clear() {
-        builders.clear();
-    }
+    // No clear(): the builders are collected once, while the mod is constructed, and a startup
+    // reload is refused for exactly this reason -- a registry cannot be filled twice. A method that
+    // emptied this list would only be called by something that had misunderstood that, and its
+    // presence suggested such a caller ought to exist.
 
     @Override
     public String toString() {

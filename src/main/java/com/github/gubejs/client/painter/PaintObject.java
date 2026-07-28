@@ -24,8 +24,14 @@ package com.github.gubejs.client.painter;
 import com.github.gubejs.bindings.ColorWrapper;
 import com.github.gubejs.bindings.TextWrapper;
 import com.github.gubejs.item.ItemStackJS;
+import com.github.gubejs.util.ConsoleJS;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiComponent;
 import net.minecraft.nbt.CompoundTag;
@@ -48,6 +54,12 @@ import org.jetbrains.annotations.Nullable;
  *     bar: { type: 'rectangle', x: 10, y: 22, w: 100, h: 6, color: '#8800FF00' }
  * })
  * }</pre>
+ *
+ * <p>Any of {@code x}, {@code y}, {@code w} and {@code h} may be written as a string instead of a
+ * number — {@code '$SW/2-50'}, {@code '$SH-30'}, {@code '50%'} — see {@link PaintExpression}. The
+ * alignments take {@code 'left'}/{@code 'center'}/{@code 'right'} and
+ * {@code 'top'}/{@code 'center'}/{@code 'bottom'} as readily as they take {@code 0}/{@code 1}/
+ * {@code 2}.
  */
 public class PaintObject extends GuiComponent {
 
@@ -59,6 +71,14 @@ public class PaintObject extends GuiComponent {
     private static final int ALIGN_END = 2;
 
     private final CompoundTag tag;
+
+    /** Parsed expressions, by property, so a description drawn every frame is parsed once. */
+    @Nullable
+    private Map<String, PaintExpression> expressions;
+
+    /** Alignment names already complained about, so a typo is one line and not one a frame. */
+    @Nullable
+    private Set<String> reportedAlignments;
 
     public PaintObject(CompoundTag tag) {
         this.tag = tag;
@@ -81,10 +101,14 @@ public class PaintObject extends GuiComponent {
      * @param screenHeight the height of the screen in GUI pixels
      */
     public void draw(PoseStack pose, int screenWidth, int screenHeight) {
-        var width = intOf("w", 0);
-        var height = intOf("h", 0);
-        var x = position("x", "alignX", screenWidth, width);
-        var y = position("y", "alignY", screenHeight, height);
+        // Two passes, because '$W' is only an answerable question once the width is a number.
+        var unmeasured = new PaintExpression.Frame(
+            screenWidth, screenHeight, PaintExpression.UNKNOWN, PaintExpression.UNKNOWN);
+        var width = intOf("w", 0, unmeasured, screenWidth);
+        var height = intOf("h", 0, unmeasured, screenHeight);
+        var frame = new PaintExpression.Frame(screenWidth, screenHeight, width, height);
+        var x = position("x", "alignX", screenWidth, width, frame);
+        var y = position("y", "alignY", screenHeight, height, frame);
 
         switch (tag.getString("type")) {
             case "rectangle", "rect" -> fill(pose, x, y, x + width, y + height, color("color", 0xFFFFFFFF));
@@ -106,7 +130,7 @@ public class PaintObject extends GuiComponent {
         var color = color("color", 0xFFFFFFFF);
 
         // The width is not given for text, so centring has to happen after it is measured.
-        var aligned = switch (intOf("alignX", ALIGN_START)) {
+        var aligned = switch (alignmentOf("alignX")) {
             case ALIGN_CENTER -> x - font.width(text) / 2;
             case ALIGN_END -> x - font.width(text);
             default -> x;
@@ -163,10 +187,11 @@ public class PaintObject extends GuiComponent {
      * <p>The alignment is what makes a description survive a resized window: a coordinate measured
      * from the right stays the same distance from the right whatever the screen is.
      */
-    private int position(String key, String alignKey, int screenSize, int objectSize) {
-        var value = intOf(key, 0);
+    private int position(String key, String alignKey, int screenSize, int objectSize,
+            PaintExpression.Frame frame) {
+        var value = intOf(key, 0, frame, screenSize);
 
-        return switch (intOf(alignKey, ALIGN_START)) {
+        return switch (alignmentOf(alignKey)) {
             case ALIGN_CENTER -> screenSize / 2 + value - objectSize / 2;
             case ALIGN_END -> screenSize - value - objectSize;
             default -> value;
@@ -205,7 +230,72 @@ public class PaintObject extends GuiComponent {
             : com.github.gubejs.util.NbtHelper.toObject(value);
     }
 
-    private int intOf(String key, int fallback) {
-        return tag.contains(key) ? tag.getInt(key) : fallback;
+    /**
+     * Reads a measurement, which a description is free to have written as a sum.
+     *
+     * <p>{@code percentOf} is what a trailing {@code %} is a percentage of, which is the screen
+     * size along the axis the property belongs to and so cannot be worked out from the key alone.
+     */
+    private int intOf(String key, int fallback, PaintExpression.Frame frame, int percentOf) {
+        var value = tag.get(key);
+
+        if (value == null) {
+            return fallback;
+        }
+
+        if (value.getId() == Tag.TAG_STRING) {
+            return expression(key, value.getAsString()).get(frame, percentOf);
+        }
+
+        return tag.getInt(key);
+    }
+
+    private PaintExpression expression(String key, String source) {
+        if (expressions == null) {
+            expressions = new HashMap<>(4);
+        }
+
+        return expressions.computeIfAbsent(key, ignored -> PaintExpression.of(source));
+    }
+
+    /**
+     * Reads an alignment, by name or by number.
+     *
+     * <p>Both, because a description is as likely to have been written by hand as generated: the
+     * names are what a person reaches for, and the numbers are what an older pack already says.
+     */
+    private int alignmentOf(String key) {
+        var value = tag.get(key);
+
+        if (value == null) {
+            return ALIGN_START;
+        }
+
+        if (value.getId() != Tag.TAG_STRING) {
+            return tag.getInt(key);
+        }
+
+        var name = value.getAsString();
+
+        return switch (name.toLowerCase(Locale.ROOT)) {
+            case "left", "top", "start" -> ALIGN_START;
+            case "center", "centre", "middle" -> ALIGN_CENTER;
+            case "right", "bottom", "end" -> ALIGN_END;
+            default -> {
+                reportAlignment(key, name);
+                yield ALIGN_START;
+            }
+        };
+    }
+
+    private void reportAlignment(String key, String name) {
+        if (reportedAlignments == null) {
+            reportedAlignments = new HashSet<>(2);
+        }
+
+        if (reportedAlignments.add(name)) {
+            ConsoleJS.CLIENT.warn("'" + name + "' is not an alignment -- " + key
+                + " takes left, center, right, top, bottom, or 0, 1 and 2");
+        }
     }
 }

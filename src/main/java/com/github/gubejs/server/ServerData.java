@@ -18,6 +18,7 @@
 package com.github.gubejs.server;
 
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.world.level.saveddata.SavedData;
 
 /**
@@ -31,6 +32,15 @@ import net.minecraft.world.level.saveddata.SavedData;
  * to it and nothing here can see that happen.
  */
 public final class ServerData extends SavedData {
+
+    /**
+     * The key the per-level tags hang under inside {@link #data}.
+     *
+     * <p>Namespaced because {@link #data} is also {@code server.persistentData}, where a pack is
+     * free to invent any key it likes and would otherwise be able to overwrite every level's tag
+     * by picking an ordinary word.
+     */
+    private static final String LEVELS = "gubejs:levels";
 
     /** The tag scripts read and write. */
     public final CompoundTag data;
@@ -55,9 +65,33 @@ public final class ServerData extends SavedData {
         return new ServerData(tag.getCompound("data"));
     }
 
+    /**
+     * Returns one level's own scratch tag — {@code level.persistentData}.
+     *
+     * <p>A subtag of this one saved file rather than a saved file of its own, so that the
+     * dimensions a pack writes to share the writing and the loading with the world's tag instead
+     * of each keeping a second copy of the same mechanism.
+     *
+     * @param dimension the dimension id, e.g. {@code minecraft:the_nether}
+     * @return the tag, created empty the first time a level is asked for
+     */
+    public CompoundTag levelData(String dimension) {
+        setDirty();
+        return child(child(data, LEVELS), dimension);
+    }
+
     @Override
     public CompoundTag save(CompoundTag tag) {
         tag.put("data", data);
         return tag;
+    }
+
+    /** The named subtag of a tag, put there first if it was missing. */
+    private static CompoundTag child(CompoundTag parent, String key) {
+        if (!parent.contains(key, Tag.TAG_COMPOUND)) {
+            parent.put(key, new CompoundTag());
+        }
+
+        return parent.getCompound(key);
     }
 }

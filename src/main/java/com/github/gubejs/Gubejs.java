@@ -399,6 +399,11 @@ public final class Gubejs {
         }
 
         @Override
+        protected void afterCreated(Item object) {
+            block.applyItemChanges(object);
+        }
+
+        @Override
         public java.util.Map<String, String> getTranslations() {
             // The block's own translation already covers the item: a BlockItem takes its name from
             // the block, so adding a second key would only produce an unused line.

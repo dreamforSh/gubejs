@@ -6,7 +6,7 @@
  *
  * This file is derived from KubeJS (branch 1902),
  * Copyright (C) LatvianModder and KubeJS contributors, originally at
- * common/src/main/java/dev/latvian/mods/kubejs/core/mixin/common/ContainerMixin.java
+ * common/src/main/java/dev/latvian/mods/kubejs/player/KubeJSInventoryListener.java
  *
  * This program is free software: you can redistribute it and/or modify it under the terms
  * of the GNU Lesser General Public License, version 3, as published by the Free Software

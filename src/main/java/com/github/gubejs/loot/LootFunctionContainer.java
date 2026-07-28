@@ -235,6 +235,46 @@ public interface LootFunctionContainer<T> {
     }
 
     /**
+     * {@link #setCount} under the name KubeJS gives it.
+     *
+     * @param count a number, or {@code { min: 1, max: 3 }} for a range
+     * @return this
+     */
+    default T count(Object count) {
+        return setCount(count);
+    }
+
+    /**
+     * {@link #setNbt} under the name KubeJS gives it.
+     *
+     * @param tag the tag, as an object or an SNBT string
+     * @return this
+     */
+    default T nbt(Object tag) {
+        return setNbt(tag);
+    }
+
+    /**
+     * {@link #setDamage} under the name KubeJS gives it.
+     *
+     * @param damage 0 to 1, or a range
+     * @return this
+     */
+    default T damage(Object damage) {
+        return setDamage(damage);
+    }
+
+    /**
+     * {@link #setName} under the name KubeJS gives it.
+     *
+     * @param name the name, as text or a component
+     * @return this
+     */
+    default T name(Object name) {
+        return setName(name);
+    }
+
+    /**
      * Adds a function of a type this class has no helper for.
      *
      * @param type the function id, e.g. {@code mymod:some_function}
